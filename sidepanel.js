@@ -13,6 +13,33 @@ const els = {
 };
 
 let thinkingState = null;
+let streamingState = null;
+
+function ensureStreamBubble() {
+  if (streamingState?.el?.isConnected) return streamingState;
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  const content = document.createElement('div');
+  content.className = 'stream-content';
+  div.appendChild(content);
+  els.messages.appendChild(div);
+  els.messages.scrollTop = els.messages.scrollHeight;
+  streamingState = { el: div, contentEl: content, text: '' };
+  return streamingState;
+}
+
+function appendStreamText(text) {
+  const s = ensureStreamBubble();
+  s.text += text;
+  s.contentEl.innerHTML = renderMarkdown(s.text);
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function endStream(totalSeconds) {
+  if (!streamingState) return;
+  // Removed timing footer per request
+  streamingState = null;
+}
 
 function createThinkingBlock() {
   const details = document.createElement('details');
@@ -151,6 +178,16 @@ els.form.addEventListener('submit', async (e) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   function render() {
+    if (msg.type === 'SIDE_STREAM_START') {
+      ensureStreamBubble();
+    }
+    if (msg.type === 'SIDE_STREAM_DELTA') {
+      appendStreamText(msg.text || '');
+    }
+    if (msg.type === 'SIDE_STREAM_END') {
+      endStream(msg.totalDuration);
+    }
+
     if (msg.type === 'SIDE_FINAL_RESPONSE') {
       if (thinkingState) {
         clearInterval(thinkingState.timer);

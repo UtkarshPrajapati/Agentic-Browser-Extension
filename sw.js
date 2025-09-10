@@ -190,6 +190,69 @@ async function openrouterCall(messages, tools) {
   return res.json();
 }
 
+async function openrouterStream(messages, tools, tabId) {
+  const { openrouterKey, model = 'anthropic/claude-3.7-sonnet' } = await chrome.storage.local.get(['openrouterKey', 'model']);
+  if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
+  const body = { model, messages, tools, parallel_tool_calls: true, stream: true };
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openrouterKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok || !res.body) throw new Error(`OpenRouter stream error: ${res.status}`);
+
+  chrome.runtime.sendMessage({ type: 'SIDE_STREAM_START', tabId });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let fullText = '';
+  let abortedForTools = false;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();
+    for (const part of parts) {
+      const lines = part.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') {
+          break;
+        }
+        try {
+          const json = JSON.parse(data);
+          const choice = json.choices && json.choices[0];
+          const delta = choice && choice.delta;
+          if (!delta) continue;
+          // If the model is attempting tool calls, abort streaming and fall back
+          if (delta.tool_calls) {
+            abortedForTools = true;
+            chrome.runtime.sendMessage({ type: 'SIDE_STREAM_ABORT', tabId });
+            return { aborted: true };
+          }
+          if (typeof delta.content === 'string' && delta.content.length > 0) {
+            fullText += delta.content;
+            chrome.runtime.sendMessage({ type: 'SIDE_STREAM_DELTA', text: delta.content, tabId });
+          }
+        } catch (e) {
+          // ignore malformed chunks
+        }
+      }
+    }
+  }
+  return { streamed: true, content: fullText };
+}
+
 function fn(name, description, parameters) {
   return { type: 'function', function: { name, description, parameters } };
 }
@@ -396,6 +459,17 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
 
       if (assistantMessage.content) {
+        // Prefer streaming the final answer for lower perceived latency
+        try {
+          const s = await openrouterStream(messages, tools, currentTabId);
+          if (s?.streamed) {
+            const totalDuration = Math.round((Date.now() - startTime) / 1000);
+            chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, tabId: currentTabId });
+            finalAnswerGenerated = true;
+            break;
+          }
+        } catch {}
+        // Fallback to non-stream final response
         const totalDuration = Math.round((Date.now() - startTime) / 1000);
         chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: assistantMessage.content, steps, totalDuration, tabId: currentTabId });
         finalAnswerGenerated = true;
