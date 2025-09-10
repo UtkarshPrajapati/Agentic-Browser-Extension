@@ -8,7 +8,8 @@
     "scripting",
     "tabs",
     "storage",
-    "activeTab"
+    "activeTab",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "*://*/*"
@@ -17,11 +18,14 @@
     "service_worker": "sw.js",
     "type": "module"
   },
-  "side_panel": {
-    "default_path": "sidepanel.html"
-  },
   "action": {
     "default_title": "Agent Sidebar"
+  },
+  "icons": {
+    "128": "icons/logo.png"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   },
   "content_scripts": [
     {

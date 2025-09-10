@@ -29,6 +29,15 @@ html, body {
   gap: 8px;
 }
 .sp-header h1 { font-size: 16px; margin: 0; font-weight: 600; color: var(--accent); }
+.sp-header .header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sp-header .logo {
+  width: 24px;
+  height: 24px;
+}
 .sp-header button {
   background: transparent;
   color: var(--fg-muted);
