@@ -163,18 +163,28 @@ chrome.runtime.onMessage.addListener((msg) => {
 
     if (msg.type === 'SIDE_STATUS') {
       if (msg.status === 'working' && thinkingState) {
-        const p = document.createElement('p');
-        p.textContent = msg.text; // e.g., "Executing: read_page"
         const stepDetail = msg.stepDetail;
-        
         if (stepDetail) {
-          const stepDiv = document.createElement('div');
-          stepDiv.className = 'step';
-          let contentHtml = `<strong>${sanitize(stepDetail.title)}</strong>`;
+          const stepDetailsEl = document.createElement('details');
+          stepDetailsEl.className = 'step';
+
+          const sum = document.createElement('summary');
+          sum.textContent = stepDetail.title || 'Action';
+          stepDetailsEl.appendChild(sum);
+
+          const body = document.createElement('div');
+          let contentHtml = '';
           if (stepDetail.humanReadable) {
             contentHtml += `<div>${renderMarkdown(stepDetail.humanReadable)}</div>`;
           }
-          stepDiv.innerHTML = contentHtml;
+          body.innerHTML = contentHtml;
+
+          if (stepDetail.isImage && stepDetail.jsonData?.dataUrl) {
+            const img = document.createElement('img');
+            img.src = stepDetail.jsonData.dataUrl;
+            img.className = 'thumb';
+            body.appendChild(img);
+          }
 
           if (stepDetail.jsonData) {
             const jsonDetails = document.createElement('details');
@@ -184,17 +194,19 @@ chrome.runtime.onMessage.addListener((msg) => {
             const pre = document.createElement('pre');
             pre.textContent = JSON.stringify(stepDetail.jsonData, null, 2);
             jsonDetails.appendChild(pre);
-            stepDiv.appendChild(jsonDetails);
+            body.appendChild(jsonDetails);
           }
-          thinkingState.traceEl.appendChild(stepDiv);
+
+          stepDetailsEl.appendChild(body);
+          thinkingState.traceEl.appendChild(stepDetailsEl);
         } else {
+          const p = document.createElement('p');
+          p.textContent = msg.text;
           thinkingState.traceEl.appendChild(p);
         }
-        
         els.messages.scrollTop = els.messages.scrollHeight;
-
       } else if (msg.status === 'idle') {
-        if (thinkingState) { // If idle is received but block still exists
+        if (thinkingState) {
           clearInterval(thinkingState.timer);
           const summary = thinkingState.el.querySelector('summary');
           summary.innerHTML = `Finished in ${thinkingState.seconds} seconds`;
