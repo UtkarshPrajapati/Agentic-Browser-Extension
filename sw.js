@@ -439,6 +439,11 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
               },
               tabId: currentTabId
             });
+            // Also render meaningful text as a normal assistant bubble for visibility
+            const generic = `Executed tool: ${call.function.name}`;
+            if (humanReadable && humanReadable !== generic) {
+              chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: humanReadable, tabId: currentTabId });
+            }
           } catch {}
           
           steps.push({
@@ -464,7 +469,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
           const s = await openrouterStream(messages, tools, currentTabId);
           if (s?.streamed) {
             const totalDuration = Math.round((Date.now() - startTime) / 1000);
-            chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, tabId: currentTabId });
+            chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, steps, tabId: currentTabId });
             finalAnswerGenerated = true;
             break;
           }

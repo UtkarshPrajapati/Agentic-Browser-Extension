@@ -35,46 +35,47 @@ function appendStreamText(text) {
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
-function endStream(totalSeconds) {
+function endStream(totalSeconds, steps) {
   if (!streamingState) return;
-  // Removed timing footer per request
   streamingState = null;
-}
-
-function createThinkingBlock() {
-  const details = document.createElement('details');
-  details.className = 'msg assistant thinking-block';
-  
-  const summary = document.createElement('summary');
-  const timerSpan = document.createElement('span');
-  timerSpan.className = 'timer-text';
-  timerSpan.textContent = 'Thinking for 0 seconds';
-  
-  const ellipsisSpan = document.createElement('span');
-  ellipsisSpan.className = 'ellipsis';
-  
-  summary.appendChild(timerSpan);
-  summary.appendChild(ellipsisSpan);
-  details.appendChild(summary);
-
-  const traceDiv = document.createElement('div');
-  traceDiv.className = 'trace';
-  details.appendChild(traceDiv);
-
-  els.messages.appendChild(details);
-  els.messages.scrollTop = els.messages.scrollHeight;
-
-  thinkingState = {
-    el: details,
-    traceEl: traceDiv,
-    seconds: 0,
-    timer: setInterval(() => {
-      if (thinkingState) {
-        thinkingState.seconds++;
-        timerSpan.textContent = `Thinking for ${thinkingState.seconds} seconds`;
+  // After streaming finishes, also render the steps (collapsed)
+  if (steps && steps.length) {
+    const details = document.createElement('details');
+    details.className = 'steps-container';
+    const summary = document.createElement('summary');
+    summary.textContent = `Show ${steps.length} Actions Taken`;
+    details.appendChild(summary);
+    for (const step of steps) {
+      const stepDetailsEl = document.createElement('details');
+      stepDetailsEl.className = 'step';
+      const sum = document.createElement('summary');
+      sum.textContent = step.title || 'Action';
+      stepDetailsEl.appendChild(sum);
+      const body = document.createElement('div');
+      let contentHtml = '';
+      if (step.humanReadable) contentHtml += `<div>${renderMarkdown(step.humanReadable)}</div>`;
+      body.innerHTML = contentHtml;
+      if (step.isImage && step.jsonData?.dataUrl) {
+        const img = document.createElement('img');
+        img.src = step.jsonData.dataUrl;
+        img.className = 'thumb';
+        body.appendChild(img);
       }
-    }, 1000)
-  };
+      if (step.jsonData) {
+        const jsonDetails = document.createElement('details');
+        const jsonSummary = document.createElement('summary');
+        jsonSummary.textContent = 'View Raw Result';
+        jsonDetails.appendChild(jsonSummary);
+        const pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(step.jsonData, null, 2);
+        jsonDetails.appendChild(pre);
+        body.appendChild(jsonDetails);
+      }
+      stepDetailsEl.appendChild(body);
+      details.appendChild(stepDetailsEl);
+    }
+    addMessageHtml('assistant', details.outerHTML);
+  }
 }
 
 function addMessage(role, text) {
@@ -94,15 +95,29 @@ function addMessageHtml(role, html) {
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
-function sanitize(text) {
+function basicSanitize(text) {
   const div = document.createElement('div');
-  div.innerText = text;
+  div.innerText = String(text);
   return div.innerHTML;
 }
 
+function sanitize(html) {
+  const purify = (window && window.DOMPurify) ? window.DOMPurify : null;
+  if (purify && typeof purify.sanitize === 'function') {
+    return purify.sanitize(String(html), { USE_PROFILES: { html: true } });
+  }
+  // Fallback: return raw HTML (extension context already isolates content scripts)
+  return String(html);
+}
+
 function renderMarkdown(raw) {
-  if (!raw) return '';
-  let text = String(raw);
+  const md = (window && window.marked && typeof window.marked.parse === 'function')
+    ? window.marked.parse(String(raw || ''))
+    : basicMarkdown(String(raw || ''));
+  return sanitize(md);
+}
+
+function basicMarkdown(text) {
   let out = text
     .replace(/^####\s+(.*)$/gm, '<h4>$1</h4>')
     .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
@@ -110,29 +125,12 @@ function renderMarkdown(raw) {
     .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>');
-  
   out = out.replace(/^(?:\s*[-*]\s+)(.*)$/gm, '<li>$1</li>');
   out = out.replace(/<\/li>\s*<li>/g, '</li><li>');
-  out = out.replace(/(<li>.*?<\/li>)/gs, (match) => `<ul>${match}</ul>`);
+  out = out.replace(/(<li>.*?<\/li>)/gs, (m) => `<ul>${m}</ul>`);
   out = out.replace(/<ul>\s*<ul>/g, '<ul>').replace(/<\/ul>\s*<\/ul>/g, '</ul>');
-
   out = out.replace(/\n/g, '<br/>');
-
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = out;
-  const allowedTags = ['h1', 'h2', 'h3', 'h4', 'strong', 'code', 'pre', 'ul', 'li', 'br'];
-  const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT);
-  let node;
-  while (node = walker.nextNode()) {
-    if (!allowedTags.includes(node.tagName.toLowerCase())) {
-      node.parentNode.removeChild(node);
-    } else {
-      while (node.attributes.length > 0) {
-        node.removeAttribute(node.attributes[0].name);
-      }
-    }
-  }
-  return tempDiv.innerHTML;
+  return out;
 }
 
 async function getActiveTabId() {
@@ -176,6 +174,42 @@ els.form.addEventListener('submit', async (e) => {
   chrome.runtime.sendMessage({ type: 'SIDE_INPUT', tabId, content });
 });
 
+function createThinkingBlock() {
+  const details = document.createElement('details');
+  details.className = 'msg assistant thinking-block';
+  
+  const summary = document.createElement('summary');
+  const timerSpan = document.createElement('span');
+  timerSpan.className = 'timer-text';
+  timerSpan.textContent = 'Thinking for 0 seconds';
+  
+  const ellipsisSpan = document.createElement('span');
+  ellipsisSpan.className = 'ellipsis';
+  
+  summary.appendChild(timerSpan);
+  summary.appendChild(ellipsisSpan);
+  details.appendChild(summary);
+
+  const traceDiv = document.createElement('div');
+  traceDiv.className = 'trace';
+  details.appendChild(traceDiv);
+
+  els.messages.appendChild(details);
+  els.messages.scrollTop = els.messages.scrollHeight;
+
+  thinkingState = {
+    el: details,
+    traceEl: traceDiv,
+    seconds: 0,
+    timer: setInterval(() => {
+      if (thinkingState) {
+        thinkingState.seconds++;
+        timerSpan.textContent = `Thinking for ${thinkingState.seconds} seconds`;
+      }
+    }, 1000)
+  };
+}
+
 chrome.runtime.onMessage.addListener((msg) => {
   function render() {
     if (msg.type === 'SIDE_STREAM_START') {
@@ -185,7 +219,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       appendStreamText(msg.text || '');
     }
     if (msg.type === 'SIDE_STREAM_END') {
-      endStream(msg.totalDuration);
+      endStream(msg.totalDuration, msg.steps);
     }
 
     if (msg.type === 'SIDE_FINAL_RESPONSE') {
@@ -199,7 +233,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
 
     if (msg.type === 'SIDE_STATUS') {
-      if (msg.status === 'working' && thinkingState) {
+      if (msg.status === 'working') {
+        if (!thinkingState) createThinkingBlock();
         const stepDetail = msg.stepDetail;
         if (stepDetail) {
           const stepDetailsEl = document.createElement('details');
@@ -250,19 +285,16 @@ chrome.runtime.onMessage.addListener((msg) => {
           thinkingState = null;
         }
         const button = els.form.querySelector('button[type="submit"]');
-        button.classList.remove('loading');
-        button.disabled = false;
+        if (button) {
+          button.classList.remove('loading');
+          button.disabled = false;
+        }
         els.input.disabled = false;
       }
     }
   }
-  if (msg.tabId) {
-    chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => {
-      if (t && t.id === msg.tabId) render();
-    });
-  } else {
-    render();
-  }
+  // Render messages globally across tabs (no tabId filtering)
+  render();
 });
 
 restoreSettings();
