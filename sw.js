@@ -285,6 +285,7 @@ function getHumanToolFeedback(call, r) {
 
 
 async function handleSideInput(tabId, content) {
+  const startTime = Date.now();
   let currentTabId = tabId;
   status(currentTabId, 'Thinking...', 'working');
   const tools = buildToolSchemas();
@@ -394,13 +395,15 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
     
     // If the loop finishes without a final text answer, send one now.
     if (!finalAnswerGenerated) {
-      chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: "Completed the requested actions.", steps, tabId: currentTabId });
+      const totalDuration = Math.round((Date.now() - startTime) / 1000);
+      chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: "Completed the requested actions.", steps, totalDuration, tabId: currentTabId });
     }
 
     await saveHistory(messages);
 
   } catch (e) {
-    chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Error: ${String(e)}`, tabId: currentTabId });
+    const totalDuration = Math.round((Date.now() - startTime) / 1000);
+    chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Error: ${String(e)}`, totalDuration, tabId: currentTabId });
   } finally {
     status(currentTabId, '', 'idle');
   }

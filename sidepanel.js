@@ -3,7 +3,6 @@
 const els = {
   toggle: document.getElementById('toggle-collapse'),
   messages: document.getElementById('messages'),
-  statusLine: document.getElementById('status-line'),
   form: document.getElementById('chat-form'),
   input: document.getElementById('user-input'),
   key: document.getElementById('openrouter-key'),
@@ -13,10 +12,47 @@ const els = {
   clear: document.getElementById('clear-chat'),
 };
 
+let thinkingState = null;
+
+function createThinkingBlock() {
+  const details = document.createElement('details');
+  details.className = 'msg assistant thinking-block';
+  
+  const summary = document.createElement('summary');
+  const timerSpan = document.createElement('span');
+  timerSpan.className = 'timer-text';
+  timerSpan.textContent = 'Thinking for 0 seconds';
+  
+  const ellipsisSpan = document.createElement('span');
+  ellipsisSpan.className = 'ellipsis';
+  
+  summary.appendChild(timerSpan);
+  summary.appendChild(ellipsisSpan);
+  details.appendChild(summary);
+
+  const traceDiv = document.createElement('div');
+  traceDiv.className = 'trace';
+  details.appendChild(traceDiv);
+
+  els.messages.appendChild(details);
+  els.messages.scrollTop = els.messages.scrollHeight;
+
+  thinkingState = {
+    el: details,
+    traceEl: traceDiv,
+    seconds: 0,
+    timer: setInterval(() => {
+      if (thinkingState) {
+        thinkingState.seconds++;
+        timerSpan.textContent = `Thinking for ${thinkingState.seconds} seconds`;
+      }
+    }, 1000)
+  };
+}
+
 function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  // Render simple markdown (headings, bold, lists, code blocks)
   const html = renderMarkdown(text);
   div.innerHTML = `<span class="role">${role}</span>${html}`;
   els.messages.appendChild(div);
@@ -39,68 +75,37 @@ function sanitize(text) {
 
 function renderMarkdown(raw) {
   if (!raw) return '';
-
-  // Convert to string and handle line breaks
   let text = String(raw);
-
-  // Process markdown before sanitization
   let out = text
-    // Headings (h4, h3, h2, h1)
     .replace(/^####\s+(.*)$/gm, '<h4>$1</h4>')
     .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
     .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
     .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>')
-    // Bold text
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Bullet lists - convert markdown list items to HTML
-    .replace(/^\-\s+(.*)$/gm, '<li>$1</li>');
-
-  // Handle lists by wrapping consecutive <li> elements in <ul>
-  // This needs to be more robust to handle single and multi-line lists cleanly.
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  
   out = out.replace(/^(?:\s*[-*]\s+)(.*)$/gm, '<li>$1</li>');
   out = out.replace(/<\/li>\s*<li>/g, '</li><li>');
-  out = out.replace(/(<li>.*?<\/li>)/gs, (match) => {
-    // Only wrap if it's not already in a list
-    return `<ul>${match}</ul>`;
-  });
-  // Prevent double-wrapping
+  out = out.replace(/(<li>.*?<\/li>)/gs, (match) => `<ul>${match}</ul>`);
   out = out.replace(/<ul>\s*<ul>/g, '<ul>').replace(/<\/ul>\s*<\/ul>/g, '</ul>');
 
-
-  // Handle line breaks
   out = out.replace(/\n/g, '<br/>');
 
-  // Sanitize the final HTML (but allow our generated tags)
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = out;
-  // Remove any potentially dangerous elements/attributes
-  const allowedTags = ['h1', 'h2', 'h3', 'strong', 'code', 'pre', 'ul', 'li', 'br'];
+  const allowedTags = ['h1', 'h2', 'h3', 'h4', 'strong', 'code', 'pre', 'ul', 'li', 'br'];
   const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT);
   let node;
   while (node = walker.nextNode()) {
     if (!allowedTags.includes(node.tagName.toLowerCase())) {
       node.parentNode.removeChild(node);
     } else {
-      // Remove any attributes
       while (node.attributes.length > 0) {
         node.removeAttribute(node.attributes[0].name);
       }
     }
   }
-
   return tempDiv.innerHTML;
-}
-
-function addCollapsedJson(role, title, obj) {
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  const safeTitle = sanitize(title);
-  const pretty = sanitize(JSON.stringify(obj, null, 2));
-  div.innerHTML = `<span class="role">${role}</span><details><summary>${safeTitle}</summary><pre>${pretty}</pre></details>`;
-  els.messages.appendChild(div);
-  els.messages.scrollTop = els.messages.scrollHeight;
 }
 
 async function getActiveTabId() {
@@ -140,19 +145,20 @@ els.form.addEventListener('submit', async (e) => {
   button.disabled = true;
   els.input.disabled = true;
 
+  createThinkingBlock();
   chrome.runtime.sendMessage({ type: 'SIDE_INPUT', tabId, content });
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
   function render() {
     if (msg.type === 'SIDE_FINAL_RESPONSE') {
-      addMessage('assistant', msg.finalAnswer);
-      if (msg.steps && msg.steps.length > 0) {
-        const details = document.createElement('details');
-        details.className = 'steps-container';
-        const summary = document.createElement('summary');
-        summary.textContent = `Show ${msg.steps.length} Actions Taken`;
-        details.appendChild(summary);
+      if (thinkingState) {
+        clearInterval(thinkingState.timer);
+        const summary = thinkingState.el.querySelector('summary');
+        summary.innerHTML = `Thought for ${msg.totalDuration} seconds`;
+        
+        const traceEl = thinkingState.traceEl;
+        traceEl.innerHTML = ''; 
 
         for (const step of msg.steps) {
           const stepDiv = document.createElement('div');
@@ -183,29 +189,26 @@ chrome.runtime.onMessage.addListener((msg) => {
             jsonDetails.appendChild(pre);
             stepDiv.appendChild(jsonDetails);
           }
-
-          details.appendChild(stepDiv);
+          traceEl.appendChild(stepDiv);
         }
-        addMessageHtml('assistant', details.outerHTML);
+        thinkingState = null;
       }
+      addMessage('assistant', msg.finalAnswer);
     }
 
     if (msg.type === 'SIDE_STATUS') {
-      if (msg.status === 'working') {
-        // This is a progress update, keep loader active but show text in status line
-        els.statusLine.textContent = msg.text || 'Working...';
+      if (msg.status === 'working' && thinkingState) {
+        const p = document.createElement('p');
+        p.textContent = msg.text;
+        thinkingState.traceEl.appendChild(p);
+        els.messages.scrollTop = els.messages.scrollHeight;
       } else if (msg.status === 'idle') {
-        // This is the final message, hide loader and clear status
-        els.statusLine.textContent = '';
         const button = els.form.querySelector('button[type="submit"]');
         button.classList.remove('loading');
         button.disabled = false;
         els.input.disabled = false;
       }
     }
-    // Remove old handlers to avoid duplicate rendering
-    // if (msg.type === 'SIDE_JSON') addCollapsedJson('assistant', msg.title || 'Result', msg.payload);
-    // if (msg.type === 'SIDE_IMAGE') { ... }
   }
   if (msg.tabId) {
     chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => {
@@ -214,13 +217,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   } else {
     render();
   }
-  // Let's remove the old logic that stops the loader too early
-  // if (['SIDE_ASSISTANT','SIDE_STATUS','SIDE_JSON','SIDE_IMAGE'].includes(msg.type)) {
-  //   const button = els.form.querySelector('button[type="submit"]');
-  //   button.classList.remove('loading');
-  //   button.disabled = false;
-  //   els.input.disabled = false;
-  // }
 });
 
 restoreSettings();

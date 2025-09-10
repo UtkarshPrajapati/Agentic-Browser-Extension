@@ -101,6 +101,24 @@ html, body {
   color: var(--accent);
 }
 
+.thinking-block > summary {
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 8px 12px;
+}
+.thinking-block .ellipsis::after {
+  display: inline-block;
+  animation: ellipsis 1.5s infinite;
+  content: ".";
+  width: 1em;
+  text-align: left;
+}
+@keyframes ellipsis {
+  0% { content: "."; }
+  33% { content: ".."; }
+  66% { content: "..."; }
+}
+
 .status-line {
   padding: 0 12px 8px;
   height: 1em;
