@@ -15,7 +15,17 @@ const els = {
 function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  div.innerHTML = `<span class="role">${role}</span>${text}`;
+  // Render simple markdown (headings, bold, lists, code blocks)
+  const html = renderMarkdown(text);
+  div.innerHTML = `<span class="role">${role}</span>${html}`;
+  els.messages.appendChild(div);
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function addMessageHtml(role, html) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.innerHTML = `<span class="role">${role}</span>${html}`;
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
 }
@@ -24,6 +34,25 @@ function sanitize(text) {
   const div = document.createElement('div');
   div.innerText = text;
   return div.innerHTML;
+}
+
+function renderMarkdown(raw) {
+  if (!raw) return '';
+  const safe = sanitize(String(raw));
+  // very light markdown: headings, bold, lists, inline code, code blocks
+  let out = safe
+    .replace(/^### (.*)$/gm, '<strong>$1</strong>')
+    .replace(/^## (.*)$/gm, '<strong>$1</strong>')
+    .replace(/^# (.*)$/gm, '<strong>$1</strong>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^\-\s+(.*)$/gm, '<div>• $1</div>');
+  // code fences
+  out = out.replace(/```[\s\S]*?```/g, (m) => `<pre>${sanitize(m.replace(/```/g, ''))}</pre>`);
+  // restore basic line breaks and allowed <br> tags
+  out = out.replace(/&lt;br\/?&gt;/gi, '<br/>');
+  out = out.replace(/\n/g, '<br/>');
+  return out;
 }
 
 function addCollapsedJson(role, title, obj) {
@@ -64,13 +93,14 @@ els.form.addEventListener('submit', async (e) => {
   const tabId = await getActiveTabId();
   addMessage('user', content);
   els.input.value = '';
+  document.body.classList.add('loading');
   chrome.runtime.sendMessage({ type: 'SIDE_INPUT', tabId, content });
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
   function render() {
-    if (msg.type === 'SIDE_ASSISTANT') addMessage('assistant', sanitize(msg.text));
-    if (msg.type === 'SIDE_STATUS') addMessage('assistant', `<span class="pill">${sanitize(msg.status)}</span> ${sanitize(msg.text)}`);
+    if (msg.type === 'SIDE_ASSISTANT') addMessage('assistant', msg.text);
+    if (msg.type === 'SIDE_STATUS') addMessageHtml('assistant', `<span class="pill">${sanitize(msg.status)}</span> ${sanitize(msg.text)}`);
     if (msg.type === 'SIDE_JSON') addCollapsedJson('assistant', msg.title || 'Result', msg.payload);
     if (msg.type === 'SIDE_IMAGE') {
       const div = document.createElement('div');
@@ -87,6 +117,10 @@ chrome.runtime.onMessage.addListener((msg) => {
     });
   } else {
     render();
+  }
+  // any assistant/status/json/image message ends the loading state
+  if (['SIDE_ASSISTANT','SIDE_STATUS','SIDE_JSON','SIDE_IMAGE'].includes(msg.type)) {
+    document.body.classList.remove('loading');
   }
 });
 

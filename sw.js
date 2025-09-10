@@ -97,7 +97,21 @@ async function activateTabByMatch(match) {
   }
   if (!t) return { ok: false, error: 'No tab matched' };
   await chrome.tabs.update(t.id, { active: true });
+  try {
+    const tab = await getTab(t.id);
+    chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Switched to tab: ${tab?.title || t.id}`, tabId: t.id });
+  } catch {}
   return { ok: true, id: t.id };
+}
+
+function getTab(tabId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.get(tabId, (tab) => resolve(tab));
+    } catch (e) {
+      resolve(null);
+    }
+  });
 }
 
 async function closeTabByMatch(match) {
@@ -301,6 +315,27 @@ async function handleSideInput(tabId, content) {
         chrome.runtime.sendMessage({ type: 'SIDE_IMAGE', dataUrl: tr.result.dataUrl, tabId });
       } else {
         chrome.runtime.sendMessage({ type: 'SIDE_JSON', title: `${tr.call.function?.name || tr.call.name} result`, payload: tr.result || tr, tabId });
+        // also emit a human-readable one-liner for common tools
+        const n = tr.call.function?.name || tr.call.name;
+        if (n === 'get_tabs' && tr.result?.ok) {
+          const tabs = tr.result.result || [];
+          const active = tabs.find(t => t.active);
+          const list = tabs.slice(0, 5).map(t => `- ${t.title || t.url}`).join('\n');
+          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Active tab: ${active?.title || active?.url || 'unknown'}\nTop tabs:\n${list}${tabs.length > 5 ? '\n…' : ''}`, tabId });
+        }
+        if (n === 'switch_tab') {
+          if (tr.result?.ok) {
+            chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: 'Switched tab successfully.', tabId });
+          } else {
+            chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Could not switch tab: ${tr.result?.error || 'unknown error'}`, tabId });
+          }
+        }
+        if (n === 'open_tab') {
+          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Opened new tab: ${tr.result?.result?.title || tr.result?.result?.url || ''}`, tabId });
+        }
+        if (n === 'click_text') {
+          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: tr.result?.cancelled ? 'Click cancelled.' : (tr.result?.ok ? 'Clicked.' : `Click failed: ${tr.result?.error}`), tabId });
+        }
       }
     }
     // If nothing human-readable yet, send a concise completion line
