@@ -123,6 +123,61 @@ details[open] > summary ~ * {
   color: var(--accent);
 }
 
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.timeline-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.timeline-line {
+  width: 2px;
+  height: 0; /* Will be animated */
+  background: var(--accent);
+  transition: height 0.3s ease;
+}
+
+.step-content {
+  flex: 1;
+}
+
+.checkmark {
+  stroke: white;
+  stroke-dasharray: 50;
+  stroke-dashoffset: 50;
+  transition: stroke-dashoffset 0.4s 0.2s ease-out;
+}
+
+.step.completed .timeline-circle {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.step.completed .checkmark {
+  stroke-dashoffset: 0;
+}
+
+.step.completed .timeline-line {
+  height: 100%; /* Animate to full height */
+}
+
+
 .thinking-block > summary {
   color: var(--fg-muted);
   cursor: pointer;

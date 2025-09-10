@@ -233,53 +233,109 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
 
     if (msg.type === 'SIDE_STATUS') {
-      if (msg.status === 'working') {
-        if (!thinkingState) createThinkingBlock();
+      if (msg.status === 'working' && thinkingState) {
         const stepDetail = msg.stepDetail;
-        if (stepDetail) {
-          const stepDetailsEl = document.createElement('details');
-          stepDetailsEl.className = 'step';
-
-          const sum = document.createElement('summary');
-          sum.textContent = stepDetail.title || 'Action';
-          stepDetailsEl.appendChild(sum);
-
-          const body = document.createElement('div');
-          let contentHtml = '';
-          if (stepDetail.humanReadable) {
-            contentHtml += `<div>${renderMarkdown(stepDetail.humanReadable)}</div>`;
-          }
-          body.innerHTML = contentHtml;
-
-          if (stepDetail.isImage && stepDetail.jsonData?.dataUrl) {
-            const img = document.createElement('img');
-            img.src = stepDetail.jsonData.dataUrl;
-            img.className = 'thumb';
-            body.appendChild(img);
-          }
-
-          if (stepDetail.jsonData) {
-            const jsonDetails = document.createElement('details');
-            const jsonSummary = document.createElement('summary');
-            jsonSummary.textContent = 'View Raw Result';
-            jsonDetails.appendChild(jsonSummary);
-            const pre = document.createElement('pre');
-            pre.textContent = JSON.stringify(stepDetail.jsonData, null, 2);
-            jsonDetails.appendChild(pre);
-            body.appendChild(jsonDetails);
-          }
-
-          stepDetailsEl.appendChild(body);
-          thinkingState.traceEl.appendChild(stepDetailsEl);
-        } else {
-          const p = document.createElement('p');
-          p.textContent = msg.text;
-          thinkingState.traceEl.appendChild(p);
+        // If this is an "Executing: ..." message (no detail yet), create a new running step
+        if (!stepDetail && typeof msg.text === 'string' && /^Executing:\s+/i.test(msg.text)) {
+          const stepWrapper = document.createElement('div');
+          stepWrapper.className = 'step';
+          stepWrapper.innerHTML = `
+            <div class="timeline">
+              <div class="timeline-circle">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                  <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+              </div>
+              <div class="timeline-line"></div>
+            </div>
+          `;
+          const stepContent = document.createElement('div');
+          stepContent.className = 'step-content';
+          // Show the executing text as the visible summary
+          const header = document.createElement('div');
+          header.innerHTML = renderMarkdown(`**${msg.text}**`);
+          stepContent.appendChild(header);
+          stepWrapper.appendChild(stepContent);
+          thinkingState.traceEl.appendChild(stepWrapper);
+          els.messages.scrollTop = els.messages.scrollHeight;
+          return;
         }
-        els.messages.scrollTop = els.messages.scrollHeight;
+
+        // If we received detail for the just executed step, complete and enrich the last step
+        if (stepDetail) {
+          const lastStep = thinkingState.traceEl.querySelector('.step:last-child');
+          if (lastStep) {
+            // mark as completed to animate tick + line
+            lastStep.classList.add('completed');
+            // append details panel under the existing header
+            const stepContent = lastStep.querySelector('.step-content') || lastStep.appendChild(document.createElement('div'));
+            if (!stepContent.classList.contains('step-content')) stepContent.className = 'step-content';
+
+            const detailsEl = document.createElement('details');
+            const sum = document.createElement('summary');
+            sum.textContent = stepDetail.title || 'Action';
+            detailsEl.appendChild(sum);
+
+            const body = document.createElement('div');
+            let contentHtml = '';
+            if (stepDetail.humanReadable) {
+              contentHtml += `<div>${renderMarkdown(stepDetail.humanReadable)}</div>`;
+            }
+            body.innerHTML = contentHtml;
+
+            if (stepDetail.isImage && stepDetail.jsonData?.dataUrl) {
+              const img = document.createElement('img');
+              img.src = stepDetail.jsonData.dataUrl;
+              img.className = 'thumb';
+              body.appendChild(img);
+            }
+
+            if (stepDetail.jsonData) {
+              const jsonDetails = document.createElement('details');
+              const jsonSummary = document.createElement('summary');
+              jsonSummary.textContent = 'View Raw Result';
+              jsonDetails.appendChild(jsonSummary);
+              const pre = document.createElement('pre');
+              pre.textContent = JSON.stringify(stepDetail.jsonData, null, 2);
+              jsonDetails.appendChild(pre);
+              body.appendChild(jsonDetails);
+            }
+
+            detailsEl.appendChild(body);
+            stepContent.appendChild(detailsEl);
+            els.messages.scrollTop = els.messages.scrollHeight;
+            return;
+          }
+        }
+
+        // Fallback: if neither condition matched, append plain text into a new timeline step
+        {
+          const stepWrapper = document.createElement('div');
+          stepWrapper.className = 'step';
+          stepWrapper.innerHTML = `
+            <div class="timeline">
+              <div class="timeline-circle">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                  <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+              </div>
+              <div class="timeline-line"></div>
+            </div>
+          `;
+          const stepContent = document.createElement('div');
+          stepContent.className = 'step-content';
+          const p = document.createElement('div');
+          p.innerHTML = renderMarkdown(msg.text || '');
+          stepContent.appendChild(p);
+          stepWrapper.appendChild(stepContent);
+          thinkingState.traceEl.appendChild(stepWrapper);
+          els.messages.scrollTop = els.messages.scrollHeight;
+        }
       } else if (msg.status === 'idle') {
         if (thinkingState) {
           clearInterval(thinkingState.timer);
+          const lastStep = thinkingState.traceEl.querySelector('.step:last-child');
+          if (lastStep) lastStep.classList.add('completed');
           const summary = thinkingState.el.querySelector('summary');
           summary.innerHTML = `Finished in ${thinkingState.seconds} seconds`;
           thinkingState = null;
