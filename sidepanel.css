@@ -182,7 +182,8 @@ details[open] > summary ~ * {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
+  margin-top: -8px; /* half of height */
+  margin-left: -8px; /* half of width */
   border: 2px solid rgba(255,255,255,0.3);
   border-top: 2px solid #fff;
   border-radius: 50%;
@@ -191,12 +192,21 @@ details[open] > summary ~ * {
   animation: spin 1s linear infinite;
 }
 
+#chat-form button svg {
+  transition: opacity 0.2s;
+}
+
+#chat-form button.loading svg {
+  opacity: 0;
+}
+
 #chat-form button.loading .loader {
   display: inline-block;
 }
 
-#chat-form button:hover {
-  background: var(--accent);
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Markdown styling */
