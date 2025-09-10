@@ -81,6 +81,3 @@ A Comet‑style, visible, in‑tab agent that understands the current page, take
 - Some sites (e.g., highly dynamic/locked down) can block script injection; `read_page` may be limited
 - Private dashboards require you to be logged in within the same browser profile
 
-### License
-MIT (or your choice)
-
