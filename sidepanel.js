@@ -155,42 +155,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       if (thinkingState) {
         clearInterval(thinkingState.timer);
         const summary = thinkingState.el.querySelector('summary');
-        summary.innerHTML = `Thought for ${msg.totalDuration} seconds`;
-        
-        const traceEl = thinkingState.traceEl;
-        traceEl.innerHTML = ''; 
-
-        for (const step of msg.steps) {
-          const stepDiv = document.createElement('div');
-          stepDiv.className = 'step';
-
-          let contentHtml = `<strong>${sanitize(step.title)}</strong>`;
-          if (step.humanReadable) {
-            contentHtml += `<div>${renderMarkdown(step.humanReadable)}</div>`;
-          }
-          
-          if (step.isImage) {
-            const img = document.createElement('img');
-            img.src = step.jsonData.dataUrl;
-            img.className = 'thumb';
-            stepDiv.innerHTML = contentHtml;
-            stepDiv.appendChild(img);
-          } else {
-            stepDiv.innerHTML = contentHtml;
-          }
-          
-          if (step.jsonData) {
-            const jsonDetails = document.createElement('details');
-            const jsonSummary = document.createElement('summary');
-            jsonSummary.textContent = 'View Raw Result';
-            jsonDetails.appendChild(jsonSummary);
-            const pre = document.createElement('pre');
-            pre.textContent = JSON.stringify(step.jsonData, null, 2);
-            jsonDetails.appendChild(pre);
-            stepDiv.appendChild(jsonDetails);
-          }
-          traceEl.appendChild(stepDiv);
-        }
+        summary.innerHTML = `Thought for ${msg.totalDuration || thinkingState.seconds} seconds`;
         thinkingState = null;
       }
       addMessage('assistant', msg.finalAnswer);
@@ -199,10 +164,42 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'SIDE_STATUS') {
       if (msg.status === 'working' && thinkingState) {
         const p = document.createElement('p');
-        p.textContent = msg.text;
-        thinkingState.traceEl.appendChild(p);
+        p.textContent = msg.text; // e.g., "Executing: read_page"
+        const stepDetail = msg.stepDetail;
+        
+        if (stepDetail) {
+          const stepDiv = document.createElement('div');
+          stepDiv.className = 'step';
+          let contentHtml = `<strong>${sanitize(stepDetail.title)}</strong>`;
+          if (stepDetail.humanReadable) {
+            contentHtml += `<div>${renderMarkdown(stepDetail.humanReadable)}</div>`;
+          }
+          stepDiv.innerHTML = contentHtml;
+
+          if (stepDetail.jsonData) {
+            const jsonDetails = document.createElement('details');
+            const jsonSummary = document.createElement('summary');
+            jsonSummary.textContent = 'View Raw Result';
+            jsonDetails.appendChild(jsonSummary);
+            const pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(stepDetail.jsonData, null, 2);
+            jsonDetails.appendChild(pre);
+            stepDiv.appendChild(jsonDetails);
+          }
+          thinkingState.traceEl.appendChild(stepDiv);
+        } else {
+          thinkingState.traceEl.appendChild(p);
+        }
+        
         els.messages.scrollTop = els.messages.scrollHeight;
+
       } else if (msg.status === 'idle') {
+        if (thinkingState) { // If idle is received but block still exists
+          clearInterval(thinkingState.timer);
+          const summary = thinkingState.el.querySelector('summary');
+          summary.innerHTML = `Finished in ${thinkingState.seconds} seconds`;
+          thinkingState = null;
+        }
         const button = els.form.querySelector('button[type="submit"]');
         button.classList.remove('loading');
         button.disabled = false;

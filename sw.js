@@ -361,6 +361,22 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
           }
 
           const humanReadable = getHumanToolFeedback(call, result);
+
+          // Send real-time expandable step detail to the UI
+          try {
+            chrome.runtime.sendMessage({
+              type: 'SIDE_STATUS',
+              status: 'working',
+              text: `Executed ${call.function.name}`,
+              stepDetail: {
+                title: `Action: ${call.function.name}`,
+                humanReadable,
+                jsonData: result,
+                isImage: (call.function.name === 'screenshot' && result.ok)
+              },
+              tabId: currentTabId
+            });
+          } catch {}
           
           steps.push({
             title: `Action: ${call.function.name}`,
@@ -380,7 +396,8 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
 
       if (assistantMessage.content) {
-        chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: assistantMessage.content, steps, tabId: currentTabId });
+        const totalDuration = Math.round((Date.now() - startTime) / 1000);
+        chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: assistantMessage.content, steps, totalDuration, tabId: currentTabId });
         finalAnswerGenerated = true;
         break; 
       }
@@ -409,7 +426,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
   }
 }
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg?.type === 'SIDE_INPUT') {
       await handleSideInput(msg.tabId, msg.content);
