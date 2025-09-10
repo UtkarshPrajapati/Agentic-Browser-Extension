@@ -67,7 +67,34 @@ async function openTab(url) {
 async function activateTabByMatch(match) {
   const tabs = await chrome.tabs.query({});
   const needle = match.toLowerCase();
-  const t = tabs.find(x => (x.title?.toLowerCase().includes(needle) || x.url?.toLowerCase().includes(needle)));
+  let t = tabs.find(x => (x.title?.toLowerCase().includes(needle) || x.url?.toLowerCase().includes(needle)));
+  if (!t) {
+    // Fuzzy match on title/hostname
+    function sim(a, b) {
+      a = (a || '').toLowerCase(); b = (b || '').toLowerCase();
+      if (!a.length && !b.length) return 1;
+      const dp = Array(a.length + 1).fill(null).map(() => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+        }
+      }
+      const dist = dp[a.length][b.length];
+      const maxLen = Math.max(a.length, b.length) || 1;
+      return 1 - dist / maxLen;
+    }
+    let best = null;
+    let bestScore = 0;
+    for (const x of tabs) {
+      const host = (() => { try { return new URL(x.url || '').hostname; } catch { return ''; } })();
+      const score = Math.max(sim(x.title || '', needle), sim(x.url || '', needle), sim(host, needle));
+      if (score > bestScore) { bestScore = score; best = x; }
+    }
+    if (bestScore >= 0.6) t = best;
+  }
   if (!t) return { ok: false, error: 'No tab matched' };
   await chrome.tabs.update(t.id, { active: true });
   return { ok: true, id: t.id };
@@ -241,14 +268,14 @@ async function handleSideInput(tabId, content) {
       }
     }
 
-    // Fallback: if no tool calls at all and user asked to summarise, fetch page and summarise
-    if (toolCalls.length === 0) {
+    // Fallback: if no tool calls at all or only read_page returned, and user asked to summarise
+    if (toolCalls.length === 0 || toolCalls.every(tc => (tc.function?.name||tc.name) === 'read_page')) {
       const wantsSummary = /summari[sz]e|summary|explain this page|what's on this page/i.test(content);
       if (wantsSummary) {
         const rp = await callContentTool(tabId, 'read_page', {});
         if (rp?.ok) {
           chrome.runtime.sendMessage({ type: 'SIDE_JSON', title: 'read_page result', payload: rp.result, tabId });
-          const pageText = rp.result?.selection || rp.result?.html || '';
+          const pageText = (rp.result?.selection || '').trim() || (rp.result?.html || '');
           const sumMessages = [
             { role: 'system', content: 'Summarise the current page for the user succinctly. Include key sections and any actionable items. Do not include raw HTML; use natural language.' },
             { role: 'user', content: `URL: ${rp.result?.url}\nTitle: ${rp.result?.title}\n\nContent:\n${pageText.slice(0, 120000)}` }
