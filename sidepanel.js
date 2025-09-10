@@ -38,21 +38,50 @@ function sanitize(text) {
 
 function renderMarkdown(raw) {
   if (!raw) return '';
-  const safe = sanitize(String(raw));
-  // very light markdown: headings, bold, lists, inline code, code blocks
-  let out = safe
-    .replace(/^### (.*)$/gm, '<strong>$1</strong>')
-    .replace(/^## (.*)$/gm, '<strong>$1</strong>')
-    .replace(/^# (.*)$/gm, '<strong>$1</strong>')
+
+  // Convert to string and handle line breaks
+  let text = String(raw);
+
+  // Process markdown before sanitization
+  let out = text
+    // Headings (h3, h2, h1)
+    .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
+    .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
+    .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>')
+    // Bold text
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    // Inline code
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^\-\s+(.*)$/gm, '<div>• $1</div>');
-  // code fences
-  out = out.replace(/```[\s\S]*?```/g, (m) => `<pre>${sanitize(m.replace(/```/g, ''))}</pre>`);
-  // restore basic line breaks and allowed <br> tags
-  out = out.replace(/&lt;br\/?&gt;/gi, '<br/>');
+    // Bullet lists - convert markdown list items to HTML
+    .replace(/^\-\s+(.*)$/gm, '<li>$1</li>');
+
+  // Handle lists by wrapping consecutive <li> elements in <ul>
+  out = out.replace(/(<li>.*?<\/li>\s*)+/g, (match) => `<ul>${match}</ul>`);
+  // Code blocks
+  out = out.replace(/```([\s\S]*?)```/g, (match, code) => `<pre><code>${sanitize(code)}</code></pre>`);
+
+  // Handle line breaks
   out = out.replace(/\n/g, '<br/>');
-  return out;
+
+  // Sanitize the final HTML (but allow our generated tags)
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = out;
+  // Remove any potentially dangerous elements/attributes
+  const allowedTags = ['h1', 'h2', 'h3', 'strong', 'code', 'pre', 'ul', 'li', 'br'];
+  const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT);
+  let node;
+  while (node = walker.nextNode()) {
+    if (!allowedTags.includes(node.tagName.toLowerCase())) {
+      node.parentNode.removeChild(node);
+    } else {
+      // Remove any attributes
+      while (node.attributes.length > 0) {
+        node.removeAttribute(node.attributes[0].name);
+      }
+    }
+  }
+
+  return tempDiv.innerHTML;
 }
 
 function addCollapsedJson(role, title, obj) {

@@ -47,3 +47,14 @@ html, body {
 .msg.assistant .pill { display: inline-block; margin-right: 6px; }
 .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; padding: 1px 4px; border-radius: 4px; background: #0f172a; color: #e6e6e6; border: 1px solid #1e293b; }
 
+/* Markdown styling */
+.msg h1 { font-size: 16px; font-weight: 600; margin: 8px 0 4px 0; color: var(--accent); }
+.msg h2 { font-size: 15px; font-weight: 600; margin: 6px 0 4px 0; color: var(--accent); }
+.msg h3 { font-size: 14px; font-weight: 600; margin: 6px 0 4px 0; color: var(--accent); }
+.msg ul { margin: 6px 0; padding-left: 16px; }
+.msg li { margin: 2px 0; }
+.msg strong { font-weight: 600; color: var(--accent); }
+.msg code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; padding: 1px 3px; background: #0f172a; border-radius: 3px; border: 1px solid #1e293b; }
+.msg pre { background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 8px; margin: 6px 0; overflow-x: auto; }
+.msg pre code { background: none; border: none; padding: 0; }
+
