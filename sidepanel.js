@@ -45,7 +45,8 @@ function renderMarkdown(raw) {
 
   // Process markdown before sanitization
   let out = text
-    // Headings (h3, h2, h1)
+    // Headings (h4, h3, h2, h1)
+    .replace(/^####\s+(.*)$/gm, '<h4>$1</h4>')
     .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
     .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
     .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>')
@@ -57,9 +58,16 @@ function renderMarkdown(raw) {
     .replace(/^\-\s+(.*)$/gm, '<li>$1</li>');
 
   // Handle lists by wrapping consecutive <li> elements in <ul>
-  out = out.replace(/(<li>.*?<\/li>\s*)+/g, (match) => `<ul>${match}</ul>`);
-  // Code blocks
-  out = out.replace(/```([\s\S]*?)```/g, (match, code) => `<pre><code>${sanitize(code)}</code></pre>`);
+  // This needs to be more robust to handle single and multi-line lists cleanly.
+  out = out.replace(/^(?:\s*[-*]\s+)(.*)$/gm, '<li>$1</li>');
+  out = out.replace(/<\/li>\s*<li>/g, '</li><li>');
+  out = out.replace(/(<li>.*?<\/li>)/gs, (match) => {
+    // Only wrap if it's not already in a list
+    return `<ul>${match}</ul>`;
+  });
+  // Prevent double-wrapping
+  out = out.replace(/<ul>\s*<ul>/g, '<ul>').replace(/<\/ul>\s*<\/ul>/g, '</ul>');
+
 
   // Handle line breaks
   out = out.replace(/\n/g, '<br/>');
@@ -137,7 +145,51 @@ els.form.addEventListener('submit', async (e) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   function render() {
-    if (msg.type === 'SIDE_ASSISTANT') addMessage('assistant', msg.text);
+    if (msg.type === 'SIDE_FINAL_RESPONSE') {
+      addMessage('assistant', msg.finalAnswer);
+      if (msg.steps && msg.steps.length > 0) {
+        const details = document.createElement('details');
+        details.className = 'steps-container';
+        const summary = document.createElement('summary');
+        summary.textContent = `Show ${msg.steps.length} Actions Taken`;
+        details.appendChild(summary);
+
+        for (const step of msg.steps) {
+          const stepDiv = document.createElement('div');
+          stepDiv.className = 'step';
+
+          let contentHtml = `<strong>${sanitize(step.title)}</strong>`;
+          if (step.humanReadable) {
+            contentHtml += `<div>${renderMarkdown(step.humanReadable)}</div>`;
+          }
+          
+          if (step.isImage) {
+            const img = document.createElement('img');
+            img.src = step.jsonData.dataUrl;
+            img.className = 'thumb';
+            stepDiv.innerHTML = contentHtml;
+            stepDiv.appendChild(img);
+          } else {
+            stepDiv.innerHTML = contentHtml;
+          }
+          
+          if (step.jsonData) {
+            const jsonDetails = document.createElement('details');
+            const jsonSummary = document.createElement('summary');
+            jsonSummary.textContent = 'View Raw Result';
+            jsonDetails.appendChild(jsonSummary);
+            const pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(step.jsonData, null, 2);
+            jsonDetails.appendChild(pre);
+            stepDiv.appendChild(jsonDetails);
+          }
+
+          details.appendChild(stepDiv);
+        }
+        addMessageHtml('assistant', details.outerHTML);
+      }
+    }
+
     if (msg.type === 'SIDE_STATUS') {
       if (msg.status === 'working') {
         // This is a progress update, keep loader active but show text in status line
@@ -151,15 +203,9 @@ chrome.runtime.onMessage.addListener((msg) => {
         els.input.disabled = false;
       }
     }
-    if (msg.type === 'SIDE_JSON') addCollapsedJson('assistant', msg.title || 'Result', msg.payload);
-    if (msg.type === 'SIDE_IMAGE') {
-      const div = document.createElement('div');
-      div.className = 'msg assistant';
-      const href = msg.dataUrl;
-      div.innerHTML = `<span class="role">assistant</span><a href="${href}" download="screenshot.jpg">Download</a><br/><img class="thumb" src="${href}" alt="screenshot"/>`;
-      els.messages.appendChild(div);
-      els.messages.scrollTop = els.messages.scrollHeight;
-    }
+    // Remove old handlers to avoid duplicate rendering
+    // if (msg.type === 'SIDE_JSON') addCollapsedJson('assistant', msg.title || 'Result', msg.payload);
+    // if (msg.type === 'SIDE_IMAGE') { ... }
   }
   if (msg.tabId) {
     chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => {

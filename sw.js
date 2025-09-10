@@ -258,29 +258,29 @@ async function clearHistory() {
 }
 
 // Helper for human-friendly tool messages
-function sendHumanToolFeedback(tabId, call, r) {
+function getHumanToolFeedback(call, r) {
     if (!r.ok) {
-        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Tool error (${call.function.name}): ${r.error}`, tabId });
-        return;
+        return `Tool error (${call.function.name}): ${r.error}`;
     }
     const name = call.function.name;
     if (name === 'screenshot') {
-        chrome.runtime.sendMessage({ type: 'SIDE_IMAGE', dataUrl: r.dataUrl, tabId });
+        return `Screenshot captured.`; // Special handling for image in main loop
     } else if (name === 'get_tabs') {
         const tabs = r.result || [];
         const list = tabs.slice(0, 10).map(t => `- ${t.active ? '**' : ''}${t.title || t.url}${t.active ? '**' : ''}`).join('\n');
-        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Open tabs:\n${list}${tabs.length > 10 ? '\n…' : ''}`, tabId });
+        return `Open tabs:\n${list}${tabs.length > 10 ? '\n…' : ''}`;
     } else if (name === 'switch_tab') {
       if (r.ok) {
-          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Switched to: **${r.result.title}**`, tabId });
+          return `Switched to: **${r.result.title}**`;
       } else {
-          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Could not switch tab: ${r.error}`, tabId });
+          return `Could not switch tab: ${r.error}`;
       }
     } else if (name === 'open_tab') {
-        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Opened: ${r.result?.title || r.result?.url || ''}`, tabId });
+        return `Opened: ${r.result?.title || r.result?.url || ''}`;
     } else if (name === 'click_text' || name === 'click') {
-        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Clicked element.`, tabId });
+        return `Clicked element.`;
     }
+    return `Executed tool: ${name}`;
 }
 
 
@@ -337,8 +337,9 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
   messages.push({ role: 'user', content });
 
   try {
-    const MAX_TURNS = 5;
+    const MAX_TURNS = 10; // Increased max turns for complex tasks
     let finalAnswerGenerated = false;
+    const steps = [];
 
     for (let i = 0; i < MAX_TURNS; i++) {
       const completion = await openrouterCall(messages, tools);
@@ -354,15 +355,19 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
           status(currentTabId, `Executing: ${call.function.name}`, 'working');
           const result = await dispatchToolCall(currentTabId, call);
           
-          // CRITICAL: Update context if tab is switched
           if (call.function.name === 'switch_tab' && result.ok && result.result?.id) {
             currentTabId = result.result.id;
           }
 
-          sendHumanToolFeedback(currentTabId, call, result);
-
-          chrome.runtime.sendMessage({ type: 'SIDE_JSON', title: `${call.function.name} Result`, payload: result, tabId: currentTabId });
-
+          const humanReadable = getHumanToolFeedback(call, result);
+          
+          steps.push({
+            title: `Action: ${call.function.name}`,
+            humanReadable: humanReadable,
+            jsonData: result,
+            isImage: call.function.name === 'screenshot' && result.ok
+          });
+          
           tool_outputs.push({
             tool_call_id: call.id,
             role: 'tool',
@@ -374,7 +379,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
 
       if (assistantMessage.content) {
-        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: assistantMessage.content, tabId: currentTabId });
+        chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: assistantMessage.content, steps, tabId: currentTabId });
         finalAnswerGenerated = true;
         break; 
       }
@@ -387,6 +392,11 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
     }
     
+    // If the loop finishes without a final text answer, send one now.
+    if (!finalAnswerGenerated) {
+      chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: "Completed the requested actions.", steps, tabId: currentTabId });
+    }
+
     await saveHistory(messages);
 
   } catch (e) {
