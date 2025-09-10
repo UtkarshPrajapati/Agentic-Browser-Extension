@@ -101,7 +101,7 @@ async function activateTabByMatch(match) {
     const tab = await getTab(t.id);
     chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Switched to tab: ${tab?.title || t.id}`, tabId: t.id });
   } catch {}
-  return { ok: true, id: t.id };
+  return { ok: true, result: { id: t.id, title: t.title, url: t.url } };
 }
 
 function getTab(tabId) {
@@ -243,108 +243,109 @@ async function dispatchToolCall(tabId, call) {
   }
 }
 
+// New helper functions for conversation history
+async function getHistory(tabId) {
+  const data = await chrome.storage.session.get([`history_${tabId}`]);
+  return data[`history_${tabId}`] || [];
+}
+
+async function saveHistory(tabId, messages) {
+  await chrome.storage.session.set({ [`history_${tabId}`]: messages });
+}
+
+async function clearHistory(tabId) {
+  await chrome.storage.session.remove([`history_${tabId}`]);
+}
+
+// Helper for human-friendly tool messages
+function sendHumanToolFeedback(tabId, call, r) {
+    if (!r.ok) {
+        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Tool error (${call.function.name}): ${r.error}`, tabId });
+        return;
+    }
+    const name = call.function.name;
+    if (name === 'screenshot') {
+        chrome.runtime.sendMessage({ type: 'SIDE_IMAGE', dataUrl: r.dataUrl, tabId });
+    } else if (name === 'get_tabs') {
+        const tabs = r.result || [];
+        const list = tabs.slice(0, 10).map(t => `- ${t.active ? '**' : ''}${t.title || t.url}${t.active ? '**' : ''}`).join('\n');
+        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Open tabs:\n${list}${tabs.length > 10 ? '\n…' : ''}`, tabId });
+    } else if (name === 'switch_tab') {
+      if (r.ok) {
+          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Switched to: **${r.result.title}**`, tabId });
+      } else {
+          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Could not switch tab: ${r.error}`, tabId });
+      }
+    } else if (name === 'open_tab') {
+        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Opened: ${r.result?.title || r.result?.url || ''}`, tabId });
+    } else if (name === 'click_text' || name === 'click') {
+        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Clicked element.`, tabId });
+    }
+}
+
+
 async function handleSideInput(tabId, content) {
   status(tabId, 'Thinking...', 'working');
   const tools = buildToolSchemas();
-  const messages = [
-    { role: 'system', content: 'You are a Comet-style in-tab agent. Prefer visible actions via tools. Ask for confirmation before posting or irreversible actions. Respect allowlist and robots.txt.' },
-    { role: 'user', content }
-  ];
-  try {
-    const completion = await openrouterCall(messages, tools);
-    const choice = completion.choices?.[0];
-    if (!choice) throw new Error('No choices from OpenRouter');
-    const msg = choice.message;
-    // Tool calls
-    const toolCalls = msg?.tool_calls || [];
-    let toolResults = [];
-    for (const call of toolCalls) {
-      const r = await dispatchToolCall(tabId, call);
-      toolResults.push({ call, result: r });
-      // minimal agent loop: if read_page only, try to infer next action suggestion
-      if ((call.function?.name || call.name) === 'read_page' && (!toolCalls.some(tc => (tc.function?.name||tc.name) !== 'read_page'))) {
-        // Ask model for a follow-up action suggestion given the page
-        const followMessages = [
-          ...messages,
-          { role: 'assistant', content: 'Received page content.' },
-          { role: 'user', content: 'Given this page, suggest the single best next visible action with a CSS selector, as JSON {"tool":"click|type|scroll","args":{...}}.' }
-        ];
-        try {
-          const follow = await openrouterCall(followMessages, tools);
-          const fchoice = follow.choices?.[0];
-          const fmsg = fchoice?.message;
-          const ftool = fmsg?.tool_calls?.[0];
-          if (ftool) {
-            const fr = await dispatchToolCall(tabId, ftool);
-            toolResults.push({ call: ftool, result: fr });
-          }
-        } catch {}
-      }
-    }
+  
+  let messages = await getHistory(tabId);
+  if (messages.length === 0) {
+    messages.push({ role: 'system', content: 'You are Sonoma, a Comet-style in-tab agent. You prefer taking visible actions using tools. For complex tasks, break them down into steps. After using a tool, analyze the result and decide the next step. When the task is complete, provide a final, clear answer to the user.' });
+  }
+  messages.push({ role: 'user', content });
 
-    // Fallback: if no tool calls at all or only read_page returned, and user asked to summarise
-    if (toolCalls.length === 0 || toolCalls.every(tc => (tc.function?.name||tc.name) === 'read_page')) {
-      const wantsSummary = /summari[sz]e|summary|explain this page|what's on this page/i.test(content);
-      if (wantsSummary) {
-        const rp = await callContentTool(tabId, 'read_page', {});
-        if (rp?.ok) {
-          chrome.runtime.sendMessage({ type: 'SIDE_JSON', title: 'read_page result', payload: rp.result, tabId });
-          const pageText = (rp.result?.selection || '').trim() || (rp.result?.html || '');
-          const sumMessages = [
-            { role: 'system', content: 'Summarise the current page for the user succinctly. Include key sections and any actionable items. Do not include raw HTML; use natural language.' },
-            { role: 'user', content: `URL: ${rp.result?.url}\nTitle: ${rp.result?.title}\n\nContent:\n${pageText.slice(0, 120000)}` }
-          ];
-          try {
-            const sum = await openrouterCall(sumMessages, []);
-            const schoice = sum.choices?.[0];
-            const scontent = schoice?.message?.content || 'Summary ready.';
-            chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: scontent, tabId });
-          } catch (e2) {
-            chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Summary error: ${String(e2)}`, tabId });
-          }
+  try {
+    const MAX_TURNS = 5;
+    let finalAnswerGenerated = false;
+
+    for (let i = 0; i < MAX_TURNS; i++) {
+      const completion = await openrouterCall(messages, tools);
+      const choice = completion.choices?.[0];
+      if (!choice) throw new Error('No choices from OpenRouter');
+
+      const assistantMessage = choice.message;
+      messages.push(assistantMessage);
+
+      if (assistantMessage.tool_calls) {
+        let tool_outputs = [];
+        for (const call of assistantMessage.tool_calls) {
+          status(tabId, `Executing: ${call.function.name}`, 'working');
+          const result = await dispatchToolCall(tabId, call);
+          
+          sendHumanToolFeedback(tabId, call, result);
+
+          chrome.runtime.sendMessage({ type: 'SIDE_JSON', title: `${call.function.name} Result`, payload: result, tabId });
+
+          tool_outputs.push({
+            tool_call_id: call.id,
+            role: 'tool',
+            name: call.function.name,
+            content: JSON.stringify(result),
+          });
         }
+        messages.push(...tool_outputs);
+      }
+
+      if (assistantMessage.content) {
+        chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: assistantMessage.content, tabId });
+        finalAnswerGenerated = true;
+        break; 
+      }
+
+      if (!assistantMessage.tool_calls) {
+        if (!finalAnswerGenerated) {
+           chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: "Completed the requested actions.", tabId });
+        }
+        break;
       }
     }
-    // Respond back summarizing actions and results (collapsed JSON, images)
-    const humanText = msg?.content?.trim() ? msg.content : null;
-    if (humanText) {
-      chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: humanText, tabId });
-    }
-    for (const tr of toolResults) {
-      if (tr?.result?.dataUrl) {
-        chrome.runtime.sendMessage({ type: 'SIDE_IMAGE', dataUrl: tr.result.dataUrl, tabId });
-      } else {
-        chrome.runtime.sendMessage({ type: 'SIDE_JSON', title: `${tr.call.function?.name || tr.call.name} result`, payload: tr.result || tr, tabId });
-        // also emit a human-readable one-liner for common tools
-        const n = tr.call.function?.name || tr.call.name;
-        if (n === 'get_tabs' && tr.result?.ok) {
-          const tabs = tr.result.result || [];
-          const active = tabs.find(t => t.active);
-          const list = tabs.slice(0, 5).map(t => `- ${t.title || t.url}`).join('\n');
-          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Active tab: ${active?.title || active?.url || 'unknown'}\nTop tabs:\n${list}${tabs.length > 5 ? '\n…' : ''}`, tabId });
-        }
-        if (n === 'switch_tab') {
-          if (tr.result?.ok) {
-            chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: 'Switched tab successfully.', tabId });
-          } else {
-            chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Could not switch tab: ${tr.result?.error || 'unknown error'}`, tabId });
-          }
-        }
-        if (n === 'open_tab') {
-          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Opened new tab: ${tr.result?.result?.title || tr.result?.result?.url || ''}`, tabId });
-        }
-        if (n === 'click_text') {
-          chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: tr.result?.cancelled ? 'Click cancelled.' : (tr.result?.ok ? 'Clicked.' : `Click failed: ${tr.result?.error}`), tabId });
-        }
-      }
-    }
-    // If nothing human-readable yet, send a concise completion line
-    if (!humanText) {
-      const calls = toolResults.map(t => (t.call.function?.name || t.call.name)).join(', ') || 'none';
-      chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Completed. Tools: ${calls}.`, tabId });
-    }
+    
+    await saveHistory(tabId, messages);
+
   } catch (e) {
     chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Error: ${String(e)}`, tabId });
+  } finally {
+    status(tabId, '', 'idle');
   }
 }
 
@@ -352,8 +353,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   (async () => {
     if (msg?.type === 'SIDE_INPUT') {
       await handleSideInput(msg.tabId, msg.content);
+    } else if (msg?.type === 'CLEAR_HISTORY') {
+      await clearHistory(msg.tabId);
     }
   })();
+  return true; // Keep message channel open for async response
 });
 
 

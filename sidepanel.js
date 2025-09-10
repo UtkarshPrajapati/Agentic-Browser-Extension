@@ -113,7 +113,13 @@ async function saveSettings() {
 }
 
 els.save.addEventListener('click', saveSettings);
-els.clear?.addEventListener('click', () => { els.messages.innerHTML = ''; });
+els.clear?.addEventListener('click', async () => {
+  els.messages.innerHTML = '';
+  const tabId = await getActiveTabId();
+  if (tabId) {
+    chrome.runtime.sendMessage({ type: 'CLEAR_HISTORY', tabId });
+  }
+});
 
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -122,14 +128,30 @@ els.form.addEventListener('submit', async (e) => {
   const tabId = await getActiveTabId();
   addMessage('user', content);
   els.input.value = '';
-  document.body.classList.add('loading');
+  
+  const button = els.form.querySelector('button[type="submit"]');
+  button.classList.add('loading');
+  button.disabled = true;
+  els.input.disabled = true;
+
   chrome.runtime.sendMessage({ type: 'SIDE_INPUT', tabId, content });
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
   function render() {
     if (msg.type === 'SIDE_ASSISTANT') addMessage('assistant', msg.text);
-    if (msg.type === 'SIDE_STATUS') addMessageHtml('assistant', `<span class="pill">${sanitize(msg.status)}</span> ${sanitize(msg.text)}`);
+    if (msg.type === 'SIDE_STATUS') {
+      if (msg.status === 'working') {
+        // This is a progress update, keep loader active but show text
+        addMessageHtml('assistant', `<span class="pill">${sanitize(msg.status)}</span> ${sanitize(msg.text)}`);
+      } else if (msg.status === 'idle') {
+        // This is the final message, hide loader
+        const button = els.form.querySelector('button[type="submit"]');
+        button.classList.remove('loading');
+        button.disabled = false;
+        els.input.disabled = false;
+      }
+    }
     if (msg.type === 'SIDE_JSON') addCollapsedJson('assistant', msg.title || 'Result', msg.payload);
     if (msg.type === 'SIDE_IMAGE') {
       const div = document.createElement('div');
@@ -147,10 +169,13 @@ chrome.runtime.onMessage.addListener((msg) => {
   } else {
     render();
   }
-  // any assistant/status/json/image message ends the loading state
-  if (['SIDE_ASSISTANT','SIDE_STATUS','SIDE_JSON','SIDE_IMAGE'].includes(msg.type)) {
-    document.body.classList.remove('loading');
-  }
+  // Let's remove the old logic that stops the loader too early
+  // if (['SIDE_ASSISTANT','SIDE_STATUS','SIDE_JSON','SIDE_IMAGE'].includes(msg.type)) {
+  //   const button = els.form.querySelector('button[type="submit"]');
+  //   button.classList.remove('loading');
+  //   button.disabled = false;
+  //   els.input.disabled = false;
+  // }
 });
 
 restoreSettings();
