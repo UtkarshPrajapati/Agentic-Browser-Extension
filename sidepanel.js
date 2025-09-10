@@ -1,0 +1,94 @@
+// UI state and messaging bridge to service worker
+
+const els = {
+  toggle: document.getElementById('toggle-collapse'),
+  messages: document.getElementById('messages'),
+  form: document.getElementById('chat-form'),
+  input: document.getElementById('user-input'),
+  key: document.getElementById('openrouter-key'),
+  model: document.getElementById('model'),
+  allowlist: document.getElementById('allowlist'),
+  save: document.getElementById('save-settings'),
+  clear: document.getElementById('clear-chat'),
+};
+
+function addMessage(role, text) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.innerHTML = `<span class="role">${role}</span>${text}`;
+  els.messages.appendChild(div);
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function sanitize(text) {
+  const div = document.createElement('div');
+  div.innerText = text;
+  return div.innerHTML;
+}
+
+function addCollapsedJson(role, title, obj) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  const safeTitle = sanitize(title);
+  const pretty = sanitize(JSON.stringify(obj, null, 2));
+  div.innerHTML = `<span class="role">${role}</span><details><summary>${safeTitle}</summary><pre>${pretty}</pre></details>`;
+  els.messages.appendChild(div);
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+async function getActiveTabId() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id;
+}
+
+async function restoreSettings() {
+  const { openrouterKey, model, allowlist } = await chrome.storage.local.get(['openrouterKey', 'model', 'allowlist']);
+  if (openrouterKey) els.key.value = openrouterKey;
+  if (model) els.model.value = model;
+  if (allowlist) els.allowlist.value = allowlist.join(', ');
+}
+
+async function saveSettings() {
+  const allow = els.allowlist.value.split(',').map(s => s.trim()).filter(Boolean);
+  await chrome.storage.local.set({ openrouterKey: els.key.value, model: els.model.value, allowlist: allow });
+  addMessage('assistant', 'Settings saved.');
+}
+
+els.save.addEventListener('click', saveSettings);
+els.clear?.addEventListener('click', () => { els.messages.innerHTML = ''; });
+
+els.form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const content = els.input.value.trim();
+  if (!content) return;
+  const tabId = await getActiveTabId();
+  addMessage('user', content);
+  els.input.value = '';
+  chrome.runtime.sendMessage({ type: 'SIDE_INPUT', tabId, content });
+});
+
+chrome.runtime.onMessage.addListener((msg) => {
+  function render() {
+    if (msg.type === 'SIDE_ASSISTANT') addMessage('assistant', sanitize(msg.text));
+    if (msg.type === 'SIDE_STATUS') addMessage('assistant', `<span class="pill">${sanitize(msg.status)}</span> ${sanitize(msg.text)}`);
+    if (msg.type === 'SIDE_JSON') addCollapsedJson('assistant', msg.title || 'Result', msg.payload);
+    if (msg.type === 'SIDE_IMAGE') {
+      const div = document.createElement('div');
+      div.className = 'msg assistant';
+      const href = msg.dataUrl;
+      div.innerHTML = `<span class="role">assistant</span><a href="${href}" download="screenshot.jpg">Download</a><br/><img class="thumb" src="${href}" alt="screenshot"/>`;
+      els.messages.appendChild(div);
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
+  }
+  if (msg.tabId) {
+    chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => {
+      if (t && t.id === msg.tabId) render();
+    });
+  } else {
+    render();
+  }
+});
+
+restoreSettings();
+

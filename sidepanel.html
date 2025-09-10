@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Sidebar</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="sp-header">
+      <h1>Agent Sidebar</h1>
+      <div>
+        <button id="clear-chat" title="Clear chat">Clear</button>
+        <button id="toggle-collapse" title="Collapse">⮜</button>
+      </div>
+    </header>
+
+    <section class="sp-settings">
+      <details>
+        <summary>Settings</summary>
+        <label>
+          OpenRouter API Key
+          <input id="openrouter-key" type="password" placeholder="sk-or-..." />
+        </label>
+        <label>
+          Model
+          <input id="model" type="text" value="anthropic/claude-3.7-sonnet" />
+        </label>
+        <label>
+          Allowlist (comma-separated domains)
+          <input id="allowlist" type="text" placeholder="example.com, another.com" />
+        </label>
+        <button id="save-settings">Save</button>
+      </details>
+    </section>
+
+    <section class="sp-chat">
+      <div id="messages" class="messages"></div>
+      <form id="chat-form">
+        <input id="user-input" type="text" placeholder="Ask about this page or say what to do..." autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </section>
+  </div>
+
+  <script type="module" src="sidepanel.js"></script>
+  <script type="module" src="vendor/safeSelector.js"></script>
+  <script type="module" src="vendor/schema.js"></script>
+  <script type="module" src="vendor/ui.js"></script>
+  <script type="module" src="vendor/util.js"></script>
+</body>
+</html>
+
