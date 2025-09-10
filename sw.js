@@ -244,17 +244,17 @@ async function dispatchToolCall(tabId, call) {
 }
 
 // New helper functions for conversation history
-async function getHistory(tabId) {
-  const data = await chrome.storage.session.get([`history_${tabId}`]);
-  return data[`history_${tabId}`] || [];
+async function getHistory() {
+  const data = await chrome.storage.session.get(['chat_history']);
+  return data['chat_history'] || [];
 }
 
-async function saveHistory(tabId, messages) {
-  await chrome.storage.session.set({ [`history_${tabId}`]: messages });
+async function saveHistory(messages) {
+  await chrome.storage.session.set({ 'chat_history': messages });
 }
 
-async function clearHistory(tabId) {
-  await chrome.storage.session.remove([`history_${tabId}`]);
+async function clearHistory() {
+  await chrome.storage.session.remove(['chat_history']);
 }
 
 // Helper for human-friendly tool messages
@@ -288,7 +288,7 @@ async function handleSideInput(tabId, content) {
   status(tabId, 'Thinking...', 'working');
   const tools = buildToolSchemas();
   
-  let messages = await getHistory(tabId);
+  let messages = await getHistory();
   if (messages.length === 0) {
     messages.push({ role: 'system', content: 'You are Sonoma, a Comet-style in-tab agent. You prefer taking visible actions using tools. For complex tasks, break them down into steps. After using a tool, analyze the result and decide the next step. When the task is complete, provide a final, clear answer to the user.' });
   }
@@ -340,7 +340,7 @@ async function handleSideInput(tabId, content) {
       }
     }
     
-    await saveHistory(tabId, messages);
+    await saveHistory(messages);
 
   } catch (e) {
     chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Error: ${String(e)}`, tabId });
@@ -354,7 +354,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     if (msg?.type === 'SIDE_INPUT') {
       await handleSideInput(msg.tabId, msg.content);
     } else if (msg?.type === 'CLEAR_HISTORY') {
-      await clearHistory(msg.tabId);
+      await clearHistory();
     }
   })();
   return true; // Keep message channel open for async response

@@ -11,7 +11,9 @@
     <header class="sp-header">
       <h1>Agent Sidebar</h1>
       <div>
-        <button id="clear-chat" title="Clear chat">Clear</button>
+        <button id="clear-chat" title="Clear chat">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+        </button>
         <button id="toggle-collapse" title="Collapse">⮜</button>
       </div>
     </header>
@@ -37,9 +39,13 @@
 
     <section class="sp-chat">
       <div id="messages" class="messages"></div>
+      <div id="status-line" class="status-line"></div>
       <form id="chat-form">
         <input id="user-input" type="text" placeholder="Ask about this page or say what to do..." autocomplete="off" />
-        <button type="submit">Send <span class="loader"></span></button>
+        <button type="submit" title="Send">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="m22 2-11 11"/></svg>
+          <span class="loader"></span>
+        </button>
       </form>
     </section>
   </div>

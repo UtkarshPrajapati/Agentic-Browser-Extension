@@ -1,66 +1,115 @@
 :root {
-  color-scheme: light dark;
-  --bg: #0b0b0c;
-  --fg: #e6e6e6;
-  --muted: #9aa0a6;
-  --accent: #6aa3ff;
-  --border: #303134;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --bg: #111827;
+  --bg-secondary: #1f2937;
+  --border: #374151;
+  --fg: #d1d5db;
+  --fg-muted: #9ca3af;
+  --accent: #60a5fa;
+  --accent-dark: #3b82f6;
 }
 
 html, body {
   margin: 0;
   padding: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--fg);
+  font-size: 14px;
 }
 
 #app { display: flex; flex-direction: column; height: 100vh; }
-.sp-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); gap: 8px; }
-.sp-header > div { display: flex; gap: 6px; }
-.sp-header h1 { font-size: 14px; margin: 0; font-weight: 600; }
-.sp-header button { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+.sp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+.sp-header h1 { font-size: 16px; margin: 0; font-weight: 600; color: var(--accent); }
+.sp-header button {
+  background: transparent;
+  color: var(--fg-muted);
+  border: none;
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+  line-height: 0;
+}
+.sp-header button:hover { background: var(--bg-secondary); color: var(--fg); }
 
 .sp-settings { border-bottom: 1px solid var(--border); }
-.sp-settings details { padding: 8px 10px; }
-.sp-settings label { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; font-size: 12px; }
-.sp-settings input { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: #151516; color: var(--fg); }
-.sp-settings button { margin-top: 6px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: #151516; color: var(--fg); cursor: pointer; }
-
-.sp-chat { display: flex; flex-direction: column; flex: 1; }
-.messages { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
-.msg { padding: 8px 10px; background: #151516; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
-.msg.assistant { background: #111214; }
-.msg .role { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-.msg details { border: 1px dashed var(--border); border-radius: 6px; padding: 4px 6px; background: #0d0e10; }
-.msg details > summary { cursor: pointer; color: var(--muted); }
-.thumb { max-width: 100%; border-radius: 6px; border: 1px solid var(--border); }
-
-#chat-form { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
-#user-input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: #151516; color: var(--fg); }
-#chat-form button { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: #151516; color: var(--fg); cursor: pointer; min-width: 72px; }
-.loading #chat-form button { opacity: 0.6; cursor: default; position: relative; }
-.loading #chat-form button::after { content: ''; position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--fg); border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-.pill { font-size: 10px; padding: 2px 6px; border-radius: 999px; background: #0f172a; color: #93c5fd; border: 1px solid #1e293b; }
-.msg.assistant .pill { display: inline-block; margin-right: 6px; }
-.kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; padding: 1px 4px; border-radius: 4px; background: #0f172a; color: #e6e6e6; border: 1px solid #1e293b; }
-
-#chat-form button .loader {
-  display: none;
-  border: 2px solid #f3f3f3; /* Light grey */
-  border-top: 2px solid #3498db; /* Blue */
-  border-radius: 50%;
-  width: 12px;
-  height: 12px;
-  animation: spin 1s linear infinite;
-  margin-left: 5px;
-  vertical-align: middle;
+.sp-settings details { padding: 8px 12px; }
+.sp-settings summary { color: var(--fg-muted); cursor: pointer; }
+.sp-settings label { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; font-size: 13px; }
+.sp-settings input { padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+.sp-settings button {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--accent-dark);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 500;
 }
 
-#chat-form button.loading .loader {
-  display: inline-block;
+.sp-chat { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.msg {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-width: 90%;
+  line-height: 1.5;
+}
+.msg.user {
+  background: var(--accent-dark);
+  color: #fff;
+  border-color: var(--accent-dark);
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+.msg.assistant {
+  background: var(--bg-secondary);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+.msg .role { display: none; } /* Role is now indicated by position */
+.msg details { border: 1px dashed var(--border); border-radius: 6px; padding: 6px 8px; margin-top: 8px; background: var(--bg); }
+.msg details > summary { cursor: pointer; color: var(--fg-muted); font-size: 13px; }
+.thumb { max-width: 100%; border-radius: 6px; margin-top: 8px; border: 1px solid var(--border); }
+
+.status-line {
+  padding: 0 12px 8px;
+  height: 1em;
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: center;
+  transition: opacity 0.2s;
+}
+
+#chat-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+#user-input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--fg);
+}
+#user-input:focus { border-color: var(--accent); outline: none; }
+#chat-form button {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-dark);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 500;
+  position: relative;
 }
 
 #chat-form button.loading {
@@ -68,15 +117,33 @@ html, body {
   cursor: wait;
 }
 
+#chat-form button .loader {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top: 2px solid #fff;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  animation: spin 1s linear infinite;
+}
+
+#chat-form button.loading .loader {
+  display: inline-block;
+}
 
 /* Markdown styling */
-.msg h1 { font-size: 16px; font-weight: 600; margin: 8px 0 4px 0; color: var(--accent); }
-.msg h2 { font-size: 15px; font-weight: 600; margin: 6px 0 4px 0; color: var(--accent); }
-.msg h3 { font-size: 14px; font-weight: 600; margin: 6px 0 4px 0; color: var(--accent); }
-.msg ul { margin: 6px 0; padding-left: 16px; }
-.msg li { margin: 2px 0; }
+.msg h1, .msg h2, .msg h3 { font-weight: 600; margin: 10px 0 6px 0; color: var(--accent); }
+.msg h1 { font-size: 1.2em; }
+.msg h2 { font-size: 1.1em; }
+.msg h3 { font-size: 1em; }
+.msg ul { margin: 8px 0; padding-left: 20px; }
+.msg li { margin: 4px 0; }
 .msg strong { font-weight: 600; color: var(--accent); }
-.msg code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; padding: 1px 3px; background: #0f172a; border-radius: 3px; border: 1px solid #1e293b; }
-.msg pre { background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 8px; margin: 6px 0; overflow-x: auto; }
+.msg code { font-family: var(--font-mono); font-size: 0.9em; padding: 2px 4px; background: var(--bg); border-radius: 4px; border: 1px solid var(--border); }
+.msg pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 8px 0; overflow-x: auto; font-size: 13px; }
 .msg pre code { background: none; border: none; padding: 0; }
 

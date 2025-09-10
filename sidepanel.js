@@ -3,6 +3,7 @@
 const els = {
   toggle: document.getElementById('toggle-collapse'),
   messages: document.getElementById('messages'),
+  statusLine: document.getElementById('status-line'),
   form: document.getElementById('chat-form'),
   input: document.getElementById('user-input'),
   key: document.getElementById('openrouter-key'),
@@ -115,10 +116,7 @@ async function saveSettings() {
 els.save.addEventListener('click', saveSettings);
 els.clear?.addEventListener('click', async () => {
   els.messages.innerHTML = '';
-  const tabId = await getActiveTabId();
-  if (tabId) {
-    chrome.runtime.sendMessage({ type: 'CLEAR_HISTORY', tabId });
-  }
+  chrome.runtime.sendMessage({ type: 'CLEAR_HISTORY' });
 });
 
 els.form.addEventListener('submit', async (e) => {
@@ -142,10 +140,11 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'SIDE_ASSISTANT') addMessage('assistant', msg.text);
     if (msg.type === 'SIDE_STATUS') {
       if (msg.status === 'working') {
-        // This is a progress update, keep loader active but show text
-        addMessageHtml('assistant', `<span class="pill">${sanitize(msg.status)}</span> ${sanitize(msg.text)}`);
+        // This is a progress update, keep loader active but show text in status line
+        els.statusLine.textContent = msg.text || 'Working...';
       } else if (msg.status === 'idle') {
-        // This is the final message, hide loader
+        // This is the final message, hide loader and clear status
+        els.statusLine.textContent = '';
         const button = els.form.querySelector('button[type="submit"]');
         button.classList.remove('loading');
         button.disabled = false;
