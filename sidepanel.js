@@ -406,7 +406,12 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
     if (msg.type === 'SIDE_STREAM_ABORT') {
       if (streamingState?.el) {
-        try { streamingState.el.removeAttribute('data-streaming'); } catch {}
+        const hadText = !!(streamingState.text && streamingState.text.length);
+        if (hadText) {
+          try { streamingState.el.removeAttribute('data-streaming'); } catch {}
+        } else {
+          try { streamingState.el.remove(); } catch {}
+        }
       }
       streamingState = null;
       streamBuffer = '';
