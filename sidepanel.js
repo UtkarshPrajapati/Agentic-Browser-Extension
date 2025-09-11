@@ -307,6 +307,34 @@ chrome.runtime.onMessage.addListener((msg) => {
       addMessage('assistant', msg.text || '');
     }
 
+    if (msg.type === 'SIDE_CONFIRM') {
+      // Render confirm UI as a message with buttons
+      const div = document.createElement('div');
+      div.className = 'msg assistant';
+      const body = document.createElement('div');
+      body.innerHTML = renderMarkdown(`**Confirm:** ${msg.promptText || 'Proceed?'}`);
+      const actions = document.createElement('div');
+      actions.style.marginTop = '8px';
+      const okBtn = document.createElement('button');
+      okBtn.textContent = 'Allow';
+      okBtn.style.marginRight = '8px';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Deny';
+      const finalize = (ok) => {
+        try { chrome.runtime.sendMessage({ type: 'CONFIRM_RESPONSE', ok, callId: msg.callId }); } catch {}
+        try { okBtn.disabled = true; cancelBtn.disabled = true; } catch {}
+      };
+      okBtn.addEventListener('click', () => finalize(true));
+      cancelBtn.addEventListener('click', () => finalize(false));
+      actions.appendChild(okBtn);
+      actions.appendChild(cancelBtn);
+      div.appendChild(body);
+      div.appendChild(actions);
+      els.messages.appendChild(div);
+      els.messages.scrollTop = els.messages.scrollHeight;
+      persistMessagesDebounced(true);
+    }
+
     if (msg.type === 'SIDE_STATUS') {
       if (msg.status === 'working' && thinkingState) {
         const stepDetail = msg.stepDetail;

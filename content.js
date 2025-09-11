@@ -27,8 +27,14 @@ function findElement(selector) {
 
 async function waitForUserConfirm(promptText) {
   return new Promise((resolve) => {
-    const ok = window.confirm(`[Agent] ${promptText}`);
-    resolve(ok);
+    try {
+      const callId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random();
+      chrome.runtime.sendMessage({ type: 'CONFIRM_REQUEST', promptText, callId }, (resp) => {
+        resolve(!!(resp && resp.ok));
+      });
+    } catch (e) {
+      resolve(false);
+    }
   });
 }
 

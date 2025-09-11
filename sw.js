@@ -495,6 +495,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await handleSideInput(msg.tabId, msg.content);
     } else if (msg?.type === 'CLEAR_HISTORY') {
       await clearHistory();
+    } else if (msg?.type === 'CONFIRM_REQUEST') {
+      // Relay confirm prompt to side panel; expect a CONFIRM_RESPONSE back
+      const promptText = msg.promptText || 'Proceed?';
+      const callId = msg.callId || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+      const tabId = sender?.tab?.id || undefined;
+      try { chrome.sidePanel.open && tabId && (await chrome.sidePanel.open({ tabId })); } catch {}
+      try { chrome.runtime.sendMessage({ type: 'SIDE_CONFIRM', promptText, callId, tabId }); } catch {}
+      // Keep the channel open; will respond on CONFIRM_RESPONSE with same callId
+      const onResponse = (m) => {
+        if (m && m.type === 'CONFIRM_RESPONSE' && m.callId === callId) {
+          try { sendResponse({ ok: !!m.ok }); } catch {}
+          chrome.runtime.onMessage.removeListener(onResponse);
+        }
+      };
+      chrome.runtime.onMessage.addListener(onResponse);
     }
   })();
   return true; // Keep message channel open for async response
