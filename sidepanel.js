@@ -108,30 +108,32 @@ async function hydrateMessages() {
 
 function ensureStreamBubble() {
   if (streamingState?.el?.isConnected) return streamingState;
-  const div = document.createElement('div');
-  div.className = 'msg assistant';
-  div.setAttribute('data-streaming', 'true');
-  const content = document.createElement('div');
-  content.className = 'stream-content';
-  div.appendChild(content);
-  els.messages.appendChild(div);
-  els.messages.scrollTop = els.messages.scrollHeight;
-  streamingState = { el: div, contentEl: content, text: '' };
-  persistMessagesDebounced(false);
+  // Do not create a bubble yet; it will be created lazily on first delta
   return streamingState;
 }
 
 let renderThrottleTimer = null;
 function appendStreamText(text) {
-  const s = ensureStreamBubble();
-  s.text += text;
+  // Lazily create bubble on first content
+  if (!streamingState || !streamingState.el || !streamingState.el.isConnected) {
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    div.setAttribute('data-streaming', 'true');
+    const content = document.createElement('div');
+    content.className = 'stream-content';
+    div.appendChild(content);
+    els.messages.appendChild(div);
+    els.messages.scrollTop = els.messages.scrollHeight;
+    streamingState = { el: div, contentEl: content, text: '' };
+  }
+  streamingState.text += text;
   // Throttle expensive markdown + DOM updates
   if (renderThrottleTimer) return;
   renderThrottleTimer = setTimeout(() => {
     try {
-      s.contentEl.innerHTML = renderMarkdown(s.text);
+      streamingState.contentEl.innerHTML = renderMarkdown(streamingState.text);
       els.messages.scrollTop = els.messages.scrollHeight;
-      streamBuffer = s.text;
+      streamBuffer = streamingState.text;
       chrome.storage.session.set({ ui_stream_buffer: streamBuffer });
       persistMessagesDebounced(false);
     } catch {}
@@ -399,7 +401,7 @@ function createThinkingBlock() {
 chrome.runtime.onMessage.addListener((msg) => {
   function render() {
     if (msg.type === 'SIDE_STREAM_START') {
-      ensureStreamBubble();
+      // Defer bubble creation until we actually have text to show
     }
     if (msg.type === 'SIDE_STREAM_DELTA') {
       appendStreamText(msg.text || '');
