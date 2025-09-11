@@ -237,6 +237,7 @@ els.form.addEventListener('submit', async (e) => {
 function createThinkingBlock() {
   const details = document.createElement('details');
   details.className = 'msg assistant thinking-block';
+  details.open = true;
   
   const summary = document.createElement('summary');
   const timerSpan = document.createElement('span');
@@ -297,7 +298,7 @@ chrome.runtime.onMessage.addListener((msg) => {
         clearInterval(thinkingState.timer);
         const summary = thinkingState.el.querySelector('summary');
         summary.innerHTML = `Thought for ${msg.totalDuration || thinkingState.seconds} seconds`;
-        thinkingState = null;
+        // Keep open until we receive 'idle' to finalize and collapse
       }
       addMessage('assistant', msg.finalAnswer);
     }
@@ -415,6 +416,7 @@ chrome.runtime.onMessage.addListener((msg) => {
           if (lastStep) lastStep.classList.add('completed');
           const summary = thinkingState.el.querySelector('summary');
           summary.innerHTML = `Finished in ${thinkingState.seconds} seconds`;
+          try { thinkingState.el.open = false; } catch {}
           thinkingState = null;
         }
         const button = els.form.querySelector('button[type="submit"]');

@@ -105,10 +105,6 @@ async function activateTabByMatch(match) {
   }
   if (!t) return { ok: false, error: 'No tab matched' };
   await chrome.tabs.update(t.id, { active: true });
-  try {
-    const tab = await getTab(t.id);
-    chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Switched to tab: ${tab?.title || t.id}`, tabId: t.id });
-  } catch {}
   return { ok: true, result: { id: t.id, title: t.title, url: t.url } };
 }
 
@@ -411,6 +407,9 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
           status(currentTabId, `Executing: ${call.function.name}`, 'working');
           const result = await dispatchToolCall(currentTabId, call);
           
+          if (call.function.name === 'open_tab' && result.ok && result.result?.id) {
+            currentTabId = result.result.id;
+          }
           if (call.function.name === 'switch_tab' && result.ok && result.result?.id) {
             currentTabId = result.result.id;
           }
@@ -431,11 +430,6 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
               },
               tabId: currentTabId
             });
-            // Also render meaningful text as a normal assistant bubble for visibility
-            const generic = `Executed tool: ${call.function.name}`;
-            if (humanReadable && humanReadable !== generic) {
-              chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: humanReadable, tabId: currentTabId });
-            }
           } catch {}
           
           steps.push({
@@ -474,17 +468,15 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
 
       if (!assistantMessage.tool_calls) {
-        if (!finalAnswerGenerated) {
-           chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: "Completed the requested actions.", tabId: currentTabId });
-        }
         break;
       }
     }
     
-    // If the loop finishes without a final text answer, send one now.
+    // If the loop finishes without a final text answer, send a minimal completion once.
     if (!finalAnswerGenerated) {
       const totalDuration = Math.round((Date.now() - startTime) / 1000);
       chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: "Completed the requested actions.", steps, totalDuration, tabId: currentTabId });
+      finalAnswerGenerated = true;
     }
 
     await saveHistory(messages);
