@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Agent Sidebar</title>
   <link rel="stylesheet" href="sidepanel.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
   <div id="app">
@@ -21,36 +22,85 @@
       </div>
     </header>
 
-    <section class="sp-settings">
-      <details>
-        <summary>Settings</summary>
-        <label>
-          OpenRouter API Key
-          <input id="openrouter-key" type="password" placeholder="sk-or-..." />
-        </label>
-        <label>
-          Model
-          <input id="model" type="text" value="anthropic/claude-3.7-sonnet" />
-        </label>
-        <label>
-          Allowlist (comma-separated domains)
-          <input id="allowlist" type="text" placeholder="example.com, another.com" />
-        </label>
-        <button id="save-settings">Save</button>
-      </details>
-    </section>
+    <div class="sp-tabs">
+      <button id="chat-tab" class="tab active">Chat</button>
+      <button id="settings-tab" class="tab">Settings</button>
+      <button id="about-tab" class="tab">About</button>
+      <div class="glider"></div>
+    </div>
 
-    <section class="sp-chat">
-      <div id="messages" class="messages"></div>
-      <form id="chat-form">
-        <input id="user-input" type="text" placeholder="Ask about this page or say what to do..." autocomplete="off" />
-        <button type="submit" title="Send">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="m22 2-11 11"/></svg>
-          <span class="loader"></span>
-          <span class="cancel-stop" title="Cancel"></span>
-        </button>
-      </form>
-    </section>
+    <div id="chat-panel" class="tab-panel active">
+      <section class="sp-chat">
+        <div id="messages" class="messages"></div>
+        <form id="chat-form">
+          <input id="user-input" type="text" placeholder="Ask about this page or say what to do..." autocomplete="off" />
+          <button type="submit" title="Send">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="m22 2-11 11"/></svg>
+            <span class="loader"></span>
+            <span class="cancel-stop" title="Cancel"></span>
+          </button>
+        </form>
+      </section>
+    </div>
+
+    <div id="settings-panel" class="tab-panel">
+      <section class="sp-settings">
+          <label>
+            OpenRouter API Key
+            <input id="openrouter-key" type="password" placeholder="sk-or-..." />
+          </label>
+          <label>
+            Model
+            <input id="model" type="text" value="anthropic/claude-3.7-sonnet" />
+          </label>
+          <label>
+            Allowlist (comma-separated domains)
+            <input id="allowlist" type="text" placeholder="example.com, another.com" />
+          </label>
+          <button id="save-settings">Save</button>
+      </section>
+    </div>
+
+    <div id="about-panel" class="tab-panel">
+      <div class="card">
+        <div class="profile-info">
+          <div class="profile-pic">
+            <img src="icons/logo.png" alt="Utkarsh Prajapati" class="profile-img">
+          </div>
+          <div>
+            <h3>Utkarsh Prajapati</h3>
+            <p style="margin: 0; font-size: 13px;">Computer Science Student &amp; Developer</p>
+          </div>
+        </div>
+        
+        <p>This extension is an interactive sidebar agent with visible in-tab actions, powered by OpenRouter and MCP.</p>
+        
+        <div class="social-links">
+          <a href="https://linkedin.com/in/utkarshprap" target="_blank" class="social-link">
+            <i class="fab fa-linkedin"></i> LinkedIn
+          </a>
+          <a href="https://github.com/UtkarshPrajapati" target="_blank" class="social-link">
+            <i class="fab fa-github"></i> GitHub
+          </a>
+          <a href="https://linktr.ee/ut_op" target="_blank" class="social-link">
+            <i class="fas fa-link"></i> LinkTree
+          </a>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <p style="margin-bottom: 4px;">Contact:</p>
+        <a id="email-link" href="mailto:utkarshprap@gmail.com" class="email-link">
+          <i class="fas fa-envelope"></i> utkarshprap@gmail.com
+        </a>
+        
+        <div class="version-info">
+          <p id="version-display" style="margin: 0;">Version: 0.1.0</p>
+          <p style="margin: 4px 0 0 0;">© 2025 Utkarsh Prajapati. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script type="module" src="sidepanel.js"></script>

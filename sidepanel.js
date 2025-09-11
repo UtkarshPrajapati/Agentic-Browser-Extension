@@ -10,10 +10,46 @@ const els = {
   allowlist: document.getElementById('allowlist'),
   save: document.getElementById('save-settings'),
   clear: document.getElementById('clear-chat'),
+  chatTab: document.getElementById('chat-tab'),
+  settingsTab: document.getElementById('settings-tab'),
+  aboutTab: document.getElementById('about-tab'),
+  chatPanel: document.getElementById('chat-panel'),
+  settingsPanel: document.getElementById('settings-panel'),
+  aboutPanel: document.getElementById('about-panel'),
+  glider: document.querySelector('.glider'),
 };
 
 let thinkingState = null;
 let streamingState = null;
+
+// Tab switching logic
+function openTab(tabName) {
+  const tabs = ['chat', 'settings', 'about'];
+  tabs.forEach(tab => {
+    const isSelected = tab === tabName;
+    els[`${tab}Tab`].classList.toggle('active', isSelected);
+    els[`${tab}Panel`].classList.toggle('active', isSelected);
+  });
+  moveGlider(els[`${tabName}Tab`]);
+}
+
+els.chatTab.addEventListener('click', () => openTab('chat'));
+els.settingsTab.addEventListener('click', () => openTab('settings'));
+els.aboutTab.addEventListener('click', () => openTab('about'));
+
+// Move glider
+function moveGlider(target) {
+  els.glider.style.width = `${target.offsetWidth}px`;
+  els.glider.style.transform = `translateX(${target.offsetLeft}px)`;
+}
+
+// Set initial glider position
+document.addEventListener('DOMContentLoaded', () => {
+  const activeTab = document.querySelector('.tab.active');
+  if (activeTab) {
+    moveGlider(activeTab);
+  }
+});
 
 // Persist and hydrate UI across tabs/windows
 let persistTimer = null;
