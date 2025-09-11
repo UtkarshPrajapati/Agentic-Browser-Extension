@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Agent Sidebar (Comet-style)",
+  "name": "Agent Sidebar",
   "version": "0.1.0",
   "description": "Interactive sidebar agent with visible in-tab actions, powered by OpenRouter and MCP.",
   "permissions": [

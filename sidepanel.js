@@ -173,7 +173,7 @@ function renderMarkdown(raw) {
   const md = (window && window.marked && typeof window.marked.parse === 'function')
     ? window.marked.parse(String(raw || ''))
     : basicMarkdown(String(raw || ''));
-  return sanitize(md);
+  return enhanceLinks(sanitize(md));
 }
 
 function basicMarkdown(text) {
@@ -190,6 +190,42 @@ function basicMarkdown(text) {
   out = out.replace(/<ul>\s*<ul>/g, '<ul>').replace(/<\/ul>\s*<\/ul>/g, '</ul>');
   out = out.replace(/\n/g, '<br/>');
   return out;
+}
+
+function enhanceLinks(html) {
+  try {
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    const anchors = div.querySelectorAll('a[href]');
+    anchors.forEach(a => {
+      const href = a.getAttribute('href') || '';
+      const text = (a.textContent || '').trim();
+      let icon = '';
+      const host = (() => { try { return new URL(href).hostname; } catch { return ''; } })();
+      const isMail = href.startsWith('mailto:') || /@/.test(text);
+      const isGitHub = /github\.com/i.test(href) || /github\.com/i.test(text);
+      const isLinkedIn = /linkedin\.com/i.test(href) || /linkedin\.com/i.test(text);
+      const isLinktree = /linktr\.ee/i.test(href) || /linktr\.ee/i.test(text);
+      if (isMail) {
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="m22 6-10 7L2 6"/></svg>';
+      } else if (isGitHub) {
+        icon = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2.03c-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.09 1.83 1.23 1.83 1.23 1.07 1.82 2.81 1.29 3.5.99.11-.78.42-1.29.76-1.59-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.23-3.22-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.87.12 3.17.76.84 1.23 1.91 1.23 3.22 0 4.61-2.8 5.63-5.48 5.93.43.37.81 1.1.81 2.22v3.29c0 .32.21.69.82.58A12 12 0 0 0 12 .5z"/></svg>';
+      } else if (isLinkedIn) {
+        icon = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.98 3.5C4.98 4.88 3.86 6 2.5 6S0 4.88 0 3.5 1.12 1 2.5 1s2.48 1.12 2.48 2.5zM.5 8h4V24h-4zM8.5 8h3.8v2.2h.05c.53-1 1.83-2.2 3.77-2.2 4.03 0 4.77 2.65 4.77 6.1V24h-4v-7.1c0-1.7 0-3.9-2.37-3.9-2.38 0-2.75 1.86-2.75 3.78V24h-4z"/></svg>';
+      } else if (isLinktree) {
+        icon = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.5 6H20l-4 4 2 10-6-4-6 4 2-10-4-4h4.5L12 2z"/></svg>';
+      } else if (host) {
+        icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+      }
+      const chip = document.createElement('span');
+      chip.className = 'link-chip';
+      chip.innerHTML = `${icon}<span>${a.outerHTML}</span>`;
+      a.replaceWith(chip);
+    });
+    return div.innerHTML;
+  } catch {
+    return html;
+  }
 }
 
 async function getActiveTabId() {
@@ -314,11 +350,12 @@ chrome.runtime.onMessage.addListener((msg) => {
       const body = document.createElement('div');
       body.innerHTML = renderMarkdown(`**Confirm:** ${msg.promptText || 'Proceed?'}`);
       const actions = document.createElement('div');
-      actions.style.marginTop = '8px';
+      actions.className = 'confirm-actions';
       const okBtn = document.createElement('button');
+      okBtn.className = 'confirm-btn';
       okBtn.textContent = 'Allow';
-      okBtn.style.marginRight = '8px';
       const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'confirm-btn deny';
       cancelBtn.textContent = 'Deny';
       const finalize = (ok) => {
         try { chrome.runtime.sendMessage({ type: 'CONFIRM_RESPONSE', ok, callId: msg.callId }); } catch {}

@@ -276,6 +276,36 @@ details[open] > summary ~ * {
 .msg pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 8px 0; overflow-x: auto; font-size: 13px; }
 .msg pre code { background: none; border: none; padding: 0; }
 
+/* Link enhancements */
+.msg a { color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); }
+.msg a:hover { text-decoration: none; border-bottom-style: solid; }
+.link-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-secondary); margin: 2px 4px 2px 0; }
+.link-chip svg { width: 14px; height: 14px; color: var(--fg-muted); }
+
+/* Confirm buttons */
+.confirm-actions { margin-top: 8px; }
+.confirm-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--accent-dark);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
+  margin-right: 8px;
+}
+.confirm-btn:hover { background: var(--accent); }
+.confirm-btn.deny {
+  background: var(--bg-secondary);
+  color: var(--fg);
+}
+.confirm-btn.deny:hover { background: var(--border); }
+.confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .stream-content { white-space: normal; }
 .stream-footer { margin-top: 6px; font-size: 12px; color: var(--fg-muted); }
 
