@@ -2,6 +2,10 @@
 
 A Comet‑style, visible, in‑tab agent that understands the current page, takes actions in the DOM via content scripts, coordinates tools via a MV3 service worker, and chats from a persistent Side Panel. Powered by OpenRouter (OpenAI‑compatible) tool calling and MCP stubs.
 
+
+https://github.com/user-attachments/assets/d56009fc-2807-4e34-ba4a-1039d53a2a23
+
+
 ### Highlights
 - Global Side Panel chat across tab switches (no session loss on navigate/switch)
 - Tool streaming: assistant text streams live; actions are shown as a collapsible log
