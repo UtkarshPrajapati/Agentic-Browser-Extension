@@ -18,7 +18,7 @@ function highlightElement(target) {
   const box = document.createElement('div');
   box.style.cssText = `position:fixed;left:${rect.left + window.scrollX}px;top:${rect.top + window.scrollY}px;width:${rect.width}px;height:${rect.height}px;border:2px solid #6aa3ff;border-radius:6px;background:rgba(106,163,255,0.1);box-shadow:0 0 0 9999px rgba(0,0,0,0.35);pointer-events:none;transition:opacity .3s;`;
   overlay.appendChild(box);
-  setTimeout(() => { box.style.opacity = '0'; setTimeout(() => box.remove(), 300); }, 900);
+  return box; // caller removes when done
 }
 
 function findElement(selector) {
@@ -50,8 +50,9 @@ async function tool_read_page() {
 async function tool_click(selector) {
   const el = findElement(selector);
   if (!el) throw new Error(`Selector not found: ${selector}`);
-  highlightElement(el);
+  const hl = highlightElement(el);
   const ok = await waitForUserConfirm(`Click element matching selector: ${selector}?`);
+  try { hl.remove(); } catch {}
   if (!ok) return { cancelled: true };
   el.click();
   return { ok: true };
@@ -66,8 +67,9 @@ function findClickableByText(text) {
 async function tool_click_text(text) {
   const el = findClickableByText(text);
   if (!el) throw new Error(`No clickable element containing text: ${text}`);
-  highlightElement(el);
+  const hl = highlightElement(el);
   const ok = await waitForUserConfirm(`Click the element containing text: "${text}"?`);
+  try { hl.remove(); } catch {}
   if (!ok) return { cancelled: true };
   el.click();
   return { ok: true };

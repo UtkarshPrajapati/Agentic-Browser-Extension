@@ -91,7 +91,16 @@ async function listTabs() {
 
 async function openTab(url) {
   const t = await chrome.tabs.create({ url, active: true });
-  return { id: t.id, url: t.url, title: t.title };
+  // Wait until the tab has a title or completes loading (max 10s)
+  const start = Date.now();
+  while (Date.now() - start < 10000) {
+    const info = await getTab(t.id);
+    if (!info) break;
+    if (!info.pendingUrl && !info.status || info.status === 'complete') break;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  const final = await getTab(t.id);
+  return { id: t.id, url: final?.url || url, title: final?.title || '' };
 }
 
 async function activateTabByMatch(match) {
@@ -383,6 +392,9 @@ function getHumanToolFeedback(call, r) {
         return `Opened: ${r.result?.title || r.result?.url || ''}`;
     } else if (name === 'click_text' || name === 'click') {
         return `Clicked element.`;
+    } else if (name === 'read_page') {
+        const t = (r.result?.title || '').trim();
+        return `Read page${t ? ` "${t}"` : ''}.`;
     }
     return `Executed tool: ${name}`;
 }
@@ -520,7 +532,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
 
       if (assistantMessage.content) {
-        // Prefer streaming the final answer for lower perceived latency
+        // Try true SSE streaming first (now that message channel handling is fixed)
         try {
           const s = await openrouterStream(messages, tools, currentTabId);
           if (s?.streamed) {
@@ -530,11 +542,28 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
             break;
           }
         } catch {}
-        // Fallback to non-stream final response
-        const totalDuration = Math.round((Date.now() - startTime) / 1000);
-        chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: assistantMessage.content, steps, totalDuration, tabId: currentTabId });
-        finalAnswerGenerated = true;
-        break; 
+
+        // Fallback: simulate streaming by chunking locally
+        try {
+          const text = String(assistantMessage.content || '');
+          chrome.runtime.sendMessage({ type: 'SIDE_STREAM_START', tabId: currentTabId });
+          const parts = text
+            .split(/(?<=[.!?])\s+(?=[A-Z"'`\-\d])/)
+            .flatMap(p => p.match(/.{1,160}(\s|$)/g) || [p]);
+          for (const piece of parts) {
+            chrome.runtime.sendMessage({ type: 'SIDE_STREAM_DELTA', text: piece, tabId: currentTabId });
+            await new Promise(r => setTimeout(r, 60));
+          }
+          const totalDuration = Math.round((Date.now() - startTime) / 1000);
+          chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, steps, tabId: currentTabId });
+          finalAnswerGenerated = true;
+          break;
+        } catch (e) {
+          const totalDuration = Math.round((Date.now() - startTime) / 1000);
+          chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: assistantMessage.content, steps, totalDuration, tabId: currentTabId });
+          finalAnswerGenerated = true;
+          break; 
+        }
       }
 
       if (!assistantMessage.tool_calls) {
@@ -542,10 +571,12 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
     }
     
-    // If the loop finishes without a final text answer, send a minimal completion once.
+    // If the loop finishes without a final text answer, craft an automatic summary.
     if (!finalAnswerGenerated) {
       const totalDuration = Math.round((Date.now() - startTime) / 1000);
-      chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: "Completed the requested actions.", steps, totalDuration, tabId: currentTabId });
+      const summaryLines = steps.map((s, i) => `• ${s.humanReadable || s.title || 'Step ' + (i+1)}`).join('\n');
+      const auto = summaryLines ? `Here is what I did:\n${summaryLines}` : 'Finished the requested actions.';
+      chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: auto, steps, totalDuration, tabId: currentTabId });
       finalAnswerGenerated = true;
     }
 
@@ -566,19 +597,14 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  (async () => {
-    if (msg?.type === 'SIDE_INPUT') {
-      await handleSideInput(msg.tabId, msg.content);
-    } else if (msg?.type === 'CLEAR_HISTORY') {
-      await clearHistory();
-    } else if (msg?.type === 'CONFIRM_REQUEST') {
-      // Relay confirm prompt to side panel; expect a CONFIRM_RESPONSE back
+  // Asynchronous confirm bridge: keep channel open
+  if (msg?.type === 'CONFIRM_REQUEST') {
+    (async () => {
       const promptText = msg.promptText || 'Proceed?';
       const callId = msg.callId || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
       const tabId = sender?.tab?.id || undefined;
       try { chrome.sidePanel.open && tabId && (await chrome.sidePanel.open({ tabId })); } catch {}
       try { chrome.runtime.sendMessage({ type: 'SIDE_CONFIRM', promptText, callId, tabId }); } catch {}
-      // Keep the channel open; will respond on CONFIRM_RESPONSE with same callId
       const onResponse = (m) => {
         if (m && m.type === 'CONFIRM_RESPONSE' && m.callId === callId) {
           try { sendResponse({ ok: !!m.ok }); } catch {}
@@ -586,9 +612,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       };
       chrome.runtime.onMessage.addListener(onResponse);
-    }
-  })();
-  return true; // Keep message channel open for async response
+    })();
+    return true;
+  }
+
+  // Fire-and-forget; do not keep channel open
+  if (msg?.type === 'SIDE_INPUT') {
+    (async () => { await handleSideInput(msg.tabId, msg.content); })();
+    return false;
+  }
+  if (msg?.type === 'CLEAR_HISTORY') {
+    (async () => { await clearHistory(); })();
+    return false;
+  }
 });
 
 
