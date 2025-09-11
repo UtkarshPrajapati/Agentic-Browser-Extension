@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Agent Sidebar",
+  "name": "Agentic Sidebar",
   "version": "0.1.0",
   "author": "Utkarsh Prajapati",
   "description": "Interactive sidebar agent with visible in-tab actions, powered by OpenRouter and MCP.",
@@ -20,7 +20,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Agent Sidebar"
+    "default_title": "Agentic Sidebar"
   },
   "icons": {
     "128": "icons/logo.png"
