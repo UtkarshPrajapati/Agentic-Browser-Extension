@@ -15,16 +15,66 @@ const els = {
 let thinkingState = null;
 let streamingState = null;
 
+// Persist and hydrate UI across tabs/windows
+let persistTimer = null;
+let streamBuffer = '';
+function persistMessagesDebounced(force = false) {
+  if (persistTimer) clearTimeout(persistTimer);
+  const run = () => {
+    try { chrome.storage.session.set({ ui_messages_html: els.messages.innerHTML }); } catch {}
+  };
+  if (force) run(); else persistTimer = setTimeout(run, 300);
+}
+
+async function hydrateMessages() {
+  try {
+    const data = await chrome.storage.session.get(['ui_messages_html', 'ui_stream_buffer']);
+    const html = data && data.ui_messages_html;
+    if (html && typeof html === 'string') {
+      els.messages.innerHTML = html;
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
+    streamBuffer = data && typeof data.ui_stream_buffer === 'string' ? data.ui_stream_buffer : '';
+    // Reattach to an in-progress streaming bubble if present
+    const active = els.messages.querySelector('.msg.assistant[data-streaming="true"] .stream-content');
+    if (active) {
+      streamingState = { el: active.parentElement, contentEl: active, text: streamBuffer || active.innerText || '' };
+    }
+    // Reattach thinking timeline if a run is in progress
+    const tb = els.messages.querySelector('.thinking-block');
+    if (tb) {
+      const timerSpan = tb.querySelector('.timer-text');
+      const traceDiv = tb.querySelector('.trace');
+      if (timerSpan && traceDiv) {
+        // Only reattach a timer if still in "Thinking" state
+        thinkingState = {
+          el: tb,
+          traceEl: traceDiv,
+          seconds: 0,
+          timer: setInterval(() => {
+            if (thinkingState) {
+              thinkingState.seconds++;
+              timerSpan.textContent = `Thinking for ${thinkingState.seconds} seconds`;
+            }
+          }, 1000)
+        };
+      }
+    }
+  } catch {}
+}
+
 function ensureStreamBubble() {
   if (streamingState?.el?.isConnected) return streamingState;
   const div = document.createElement('div');
   div.className = 'msg assistant';
+  div.setAttribute('data-streaming', 'true');
   const content = document.createElement('div');
   content.className = 'stream-content';
   div.appendChild(content);
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
   streamingState = { el: div, contentEl: content, text: '' };
+  persistMessagesDebounced(false);
   return streamingState;
 }
 
@@ -33,11 +83,17 @@ function appendStreamText(text) {
   s.text += text;
   s.contentEl.innerHTML = renderMarkdown(s.text);
   els.messages.scrollTop = els.messages.scrollHeight;
+  streamBuffer = s.text;
+  try { chrome.storage.session.set({ ui_stream_buffer: streamBuffer }); } catch {}
+  persistMessagesDebounced(false);
 }
 
 function endStream(totalSeconds, steps) {
   if (!streamingState) return;
+  try { streamingState.el.removeAttribute('data-streaming'); } catch {}
   streamingState = null;
+  streamBuffer = '';
+  try { chrome.storage.session.remove(['ui_stream_buffer']); } catch {}
   // After streaming finishes, also render the steps (collapsed)
   if (steps && steps.length) {
     const details = document.createElement('details');
@@ -76,6 +132,7 @@ function endStream(totalSeconds, steps) {
     }
     addMessageHtml('assistant', details.outerHTML);
   }
+  persistMessagesDebounced(true);
 }
 
 function addMessage(role, text) {
@@ -85,6 +142,7 @@ function addMessage(role, text) {
   div.innerHTML = `<span class="role">${role}</span>${html}`;
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
+  persistMessagesDebounced(true);
 }
 
 function addMessageHtml(role, html) {
@@ -93,6 +151,7 @@ function addMessageHtml(role, html) {
   div.innerHTML = `<span class="role">${role}</span>${html}`;
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
+  persistMessagesDebounced(true);
 }
 
 function basicSanitize(text) {
@@ -155,6 +214,7 @@ els.save.addEventListener('click', saveSettings);
 els.clear?.addEventListener('click', async () => {
   els.messages.innerHTML = '';
   chrome.runtime.sendMessage({ type: 'CLEAR_HISTORY' });
+  try { await chrome.storage.session.remove(['ui_messages_html', 'ui_stream_buffer']); } catch {}
 });
 
 els.form.addEventListener('submit', async (e) => {
@@ -196,6 +256,7 @@ function createThinkingBlock() {
 
   els.messages.appendChild(details);
   els.messages.scrollTop = els.messages.scrollHeight;
+  persistMessagesDebounced(false);
 
   thinkingState = {
     el: details,
@@ -218,6 +279,15 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'SIDE_STREAM_DELTA') {
       appendStreamText(msg.text || '');
     }
+    if (msg.type === 'SIDE_STREAM_ABORT') {
+      if (streamingState?.el) {
+        try { streamingState.el.removeAttribute('data-streaming'); } catch {}
+      }
+      streamingState = null;
+      streamBuffer = '';
+      try { chrome.storage.session.remove(['ui_stream_buffer']); } catch {}
+      persistMessagesDebounced(true);
+    }
     if (msg.type === 'SIDE_STREAM_END') {
       endStream(msg.totalDuration, msg.steps);
     }
@@ -230,6 +300,10 @@ chrome.runtime.onMessage.addListener((msg) => {
         thinkingState = null;
       }
       addMessage('assistant', msg.finalAnswer);
+    }
+
+    if (msg.type === 'SIDE_ASSISTANT') {
+      addMessage('assistant', msg.text || '');
     }
 
     if (msg.type === 'SIDE_STATUS') {
@@ -258,6 +332,7 @@ chrome.runtime.onMessage.addListener((msg) => {
           stepWrapper.appendChild(stepContent);
           thinkingState.traceEl.appendChild(stepWrapper);
           els.messages.scrollTop = els.messages.scrollHeight;
+          persistMessagesDebounced(false);
           return;
         }
 
@@ -304,6 +379,7 @@ chrome.runtime.onMessage.addListener((msg) => {
             detailsEl.appendChild(body);
             stepContent.appendChild(detailsEl);
             els.messages.scrollTop = els.messages.scrollHeight;
+            persistMessagesDebounced(false);
             return;
           }
         }
@@ -330,6 +406,7 @@ chrome.runtime.onMessage.addListener((msg) => {
           stepWrapper.appendChild(stepContent);
           thinkingState.traceEl.appendChild(stepWrapper);
           els.messages.scrollTop = els.messages.scrollHeight;
+          persistMessagesDebounced(false);
         }
       } else if (msg.status === 'idle') {
         if (thinkingState) {
@@ -346,6 +423,7 @@ chrome.runtime.onMessage.addListener((msg) => {
           button.disabled = false;
         }
         els.input.disabled = false;
+        persistMessagesDebounced(true);
       }
     }
   }
@@ -353,5 +431,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   render();
 });
 
+hydrateMessages();
 restoreSettings();
 
