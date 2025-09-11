@@ -90,7 +90,31 @@ function appendStreamText(text) {
 
 function endStream(totalSeconds, steps) {
   if (!streamingState) return;
-  try { streamingState.el.removeAttribute('data-streaming'); } catch {}
+  const finalMsgEl = streamingState.el;
+  try { finalMsgEl.removeAttribute('data-streaming'); } catch {}
+  // If a screenshot was taken, append preview + download link under the final streamed answer
+  try {
+    const shot = Array.isArray(steps) ? steps.find(s => s && s.isImage && s.jsonData?.dataUrl) : null;
+    if (shot && shot.jsonData?.dataUrl) {
+      const footer = document.createElement('div');
+      footer.className = 'stream-footer';
+      const img = document.createElement('img');
+      img.src = shot.jsonData.dataUrl;
+      img.className = 'thumb';
+      img.style.maxWidth = '100%';
+      img.style.display = 'block';
+      img.style.marginTop = '6px';
+      const link = document.createElement('a');
+      link.href = shot.jsonData.dataUrl;
+      link.download = 'screenshot.png';
+      link.textContent = 'Download screenshot';
+      link.style.display = 'inline-block';
+      link.style.marginTop = '6px';
+      footer.appendChild(img);
+      footer.appendChild(link);
+      finalMsgEl.appendChild(footer);
+    }
+  } catch {}
   streamingState = null;
   streamBuffer = '';
   try { chrome.storage.session.remove(['ui_stream_buffer']); } catch {}
@@ -116,6 +140,13 @@ function endStream(totalSeconds, steps) {
         img.src = step.jsonData.dataUrl;
         img.className = 'thumb';
         body.appendChild(img);
+        const a = document.createElement('a');
+        a.href = step.jsonData.dataUrl;
+        a.download = 'screenshot.png';
+        a.textContent = 'Download image';
+        a.style.display = 'inline-block';
+        a.style.marginTop = '6px';
+        body.appendChild(a);
       }
       if (step.jsonData) {
         const jsonDetails = document.createElement('details');
@@ -143,6 +174,7 @@ function addMessage(role, text) {
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
   persistMessagesDebounced(true);
+  return div;
 }
 
 function addMessageHtml(role, html) {
@@ -336,7 +368,31 @@ chrome.runtime.onMessage.addListener((msg) => {
         summary.innerHTML = `Thought for ${msg.totalDuration || thinkingState.seconds} seconds`;
         // Keep open until we receive 'idle' to finalize and collapse
       }
-      addMessage('assistant', msg.finalAnswer);
+      const finalEl = addMessage('assistant', msg.finalAnswer);
+      try {
+        const stepsArr = Array.isArray(msg.steps) ? msg.steps : [];
+        const shot = stepsArr.slice().reverse().find(s => s && s.isImage && s.jsonData?.dataUrl);
+        if (shot && shot.jsonData?.dataUrl) {
+          const footer = document.createElement('div');
+          footer.className = 'stream-footer';
+          const img = document.createElement('img');
+          img.src = shot.jsonData.dataUrl;
+          img.className = 'thumb';
+          img.style.maxWidth = '100%';
+          img.style.display = 'block';
+          img.style.marginTop = '6px';
+          const link = document.createElement('a');
+          link.href = shot.jsonData.dataUrl;
+          link.download = 'screenshot.png';
+          link.textContent = 'Download screenshot';
+          link.style.display = 'inline-block';
+          link.style.marginTop = '6px';
+          footer.appendChild(img);
+          footer.appendChild(link);
+          finalEl.appendChild(footer);
+          persistMessagesDebounced(true);
+        }
+      } catch {}
     }
 
     if (msg.type === 'SIDE_ASSISTANT') {
@@ -429,6 +485,13 @@ chrome.runtime.onMessage.addListener((msg) => {
               img.src = stepDetail.jsonData.dataUrl;
               img.className = 'thumb';
               body.appendChild(img);
+              const a = document.createElement('a');
+              a.href = stepDetail.jsonData.dataUrl;
+              a.download = 'screenshot.png';
+              a.textContent = 'Download image';
+              a.style.display = 'inline-block';
+              a.style.marginTop = '6px';
+              body.appendChild(a);
             }
 
             if (stepDetail.jsonData) {

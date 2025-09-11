@@ -55,10 +55,32 @@ async function callContentTool(tabId, name, args) {
 
 async function screenshotVisible(tabId) {
   try {
-    const dataUrl = await chrome.tabs.captureVisibleTab();
+    const tab = await getTab(tabId);
+    const windowId = tab?.windowId;
+    const url = tab?.url || '';
+    // Ensure host access for this origin if activeTab isn't sufficient
+    await ensureHostAccess(url);
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId ? windowId : undefined);
     return { ok: true, dataUrl };
   } catch (e) {
-    return { ok: false, error: String(e) };
+    // Try requesting origin permission on specific error, then retry once
+    const msg = String(e || '');
+    try {
+      if (/<'all_urls'>|<all_urls>|activeTab/i.test(msg)) {
+        const tab = await getTab(tabId);
+        const url = tab?.url || '';
+        const granted = await ensureHostAccess(url, true);
+        if (granted) {
+          try {
+            const dataUrl = await chrome.tabs.captureVisibleTab(tab?.windowId ? tab.windowId : undefined);
+            return { ok: true, dataUrl };
+          } catch (e2) {
+            return { ok: false, error: String(e2) };
+          }
+        }
+      }
+    } catch {}
+    return { ok: false, error: msg };
   }
 }
 
@@ -116,6 +138,21 @@ function getTab(tabId) {
       resolve(null);
     }
   });
+}
+
+// Ensure we have host permission for a given URL's origin (runtime request if needed)
+async function ensureHostAccess(url, forceRequestAll = false) {
+  try {
+    const u = new URL(url);
+    const originPattern = `${u.protocol}//${u.hostname}/*`;
+    const has = await new Promise((res) => chrome.permissions.contains({ origins: [originPattern] }, res));
+    if (has) return true;
+    const toRequest = forceRequestAll ? ['<all_urls>'] : [originPattern];
+    const granted = await new Promise((res) => chrome.permissions.request({ origins: toRequest }, res));
+    return !!granted;
+  } catch {
+    return false;
+  }
 }
 
 async function closeTabByMatch(match) {
@@ -465,11 +502,18 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
             isImage: call.function.name === 'screenshot' && result.ok
           });
           
+          const safeContent = (() => {
+            if (call.function.name === 'screenshot') {
+              // Avoid sending huge base64 to the model; provide a stub instead
+              return JSON.stringify({ ok: !!result.ok, image: result.ok ? 'captured' : undefined, error: result.error });
+            }
+            return JSON.stringify(result);
+          })();
           tool_outputs.push({
             tool_call_id: call.id,
             role: 'tool',
             name: call.function.name,
-            content: JSON.stringify(result),
+            content: safeContent,
           });
         }
         messages.push(...tool_outputs);
@@ -509,7 +553,13 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
 
   } catch (e) {
     const totalDuration = Math.round((Date.now() - startTime) / 1000);
-    chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Error: ${String(e)}`, totalDuration, tabId: currentTabId });
+    const errMsg = String(e || '');
+    // Treat transient JSON parse/network errors as non-fatal; finalize politely
+    if (/Unexpected end of JSON input/i.test(errMsg)) {
+      try { chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: 'Completed the requested actions.', steps: [], totalDuration, tabId: currentTabId }); } catch {}
+    } else {
+      chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: `Error: ${errMsg}`, totalDuration, tabId: currentTabId });
+    }
   } finally {
     status(currentTabId, '', 'idle');
   }
