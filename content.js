@@ -39,11 +39,75 @@ async function waitForUserConfirm(promptText) {
 }
 
 async function tool_read_page() {
+  function collectHeadings() {
+    try {
+      const hs = Array.from(document.querySelectorAll('h1, h2, h3'))
+        .slice(0, 20)
+        .map(el => (el.innerText || '').trim())
+        .filter(Boolean);
+      return hs;
+    } catch { return []; }
+  }
+
+  function collectButtons() {
+    try {
+      const btns = Array.from(document.querySelectorAll('button, a[role="button"], input[type="submit"], input[type="button"]'))
+        .map(el => (el.innerText || el.value || '').trim())
+        .filter(Boolean);
+      // Deduplicate and limit
+      const uniq = Array.from(new Set(btns));
+      return uniq.slice(0, 30);
+    } catch { return []; }
+  }
+
+  function collectInputs() {
+    try {
+      const inputs = Array.from(document.querySelectorAll('input, textarea, select'))
+        .slice(0, 40)
+        .map(el => {
+          const name = el.getAttribute('name') || '';
+          const placeholder = el.getAttribute('placeholder') || '';
+          const label = (() => {
+            try {
+              const id = el.getAttribute('id');
+              if (!id) return '';
+              const lab = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+              return (lab && lab.innerText) ? lab.innerText.trim() : '';
+            } catch { return ''; }
+          })();
+          return { name, placeholder, label };
+        });
+      return inputs;
+    } catch { return []; }
+  }
+
+  function getSmallBodyHTML(limit) {
+    try {
+      const html = document.body ? document.body.innerHTML : document.documentElement.outerHTML;
+      return String(html).slice(0, Math.max(0, Math.min(limit, 15000)));
+    } catch {
+      return '';
+    }
+  }
+
+  function getVisibleText(limit) {
+    try {
+      const text = document.body ? (document.body.innerText || '') : '';
+      // Collapse excessive whitespace to reduce size
+      const compact = text.replace(/\s+/g, ' ').trim();
+      return compact.slice(0, Math.max(0, Math.min(limit, 8000)));
+    } catch { return ''; }
+  }
+
   return {
     url: location.href,
     title: document.title,
     selection: window.getSelection()?.toString() || '',
-    html: document.documentElement.outerHTML.slice(0, 300000)
+    headings: collectHeadings(),
+    buttons: collectButtons(),
+    inputs: collectInputs(),
+    text: getVisibleText(8000),
+    html: getSmallBodyHTML(12000)
   };
 }
 

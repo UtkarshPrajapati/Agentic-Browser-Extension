@@ -54,12 +54,19 @@ document.addEventListener('DOMContentLoaded', () => {
 // Persist and hydrate UI across tabs/windows
 let persistTimer = null;
 let streamBuffer = '';
+let lastPersistHtml = '';
 function persistMessagesDebounced(force = false) {
   if (persistTimer) clearTimeout(persistTimer);
   const run = () => {
-    try { chrome.storage.session.set({ ui_messages_html: els.messages.innerHTML }); } catch {}
+    try {
+      const html = els.messages.innerHTML;
+      // Avoid redundant writes if HTML hasn't changed
+      if (!force && html === lastPersistHtml) return;
+      lastPersistHtml = html;
+      chrome.storage.session.set({ ui_messages_html: html });
+    } catch {}
   };
-  if (force) run(); else persistTimer = setTimeout(run, 300);
+  if (force) run(); else persistTimer = setTimeout(run, 600);
 }
 
 async function hydrateMessages() {
@@ -114,14 +121,22 @@ function ensureStreamBubble() {
   return streamingState;
 }
 
+let renderThrottleTimer = null;
 function appendStreamText(text) {
   const s = ensureStreamBubble();
   s.text += text;
-  s.contentEl.innerHTML = renderMarkdown(s.text);
-  els.messages.scrollTop = els.messages.scrollHeight;
-  streamBuffer = s.text;
-  try { chrome.storage.session.set({ ui_stream_buffer: streamBuffer }); } catch {}
-  persistMessagesDebounced(false);
+  // Throttle expensive markdown + DOM updates
+  if (renderThrottleTimer) return;
+  renderThrottleTimer = setTimeout(() => {
+    try {
+      s.contentEl.innerHTML = renderMarkdown(s.text);
+      els.messages.scrollTop = els.messages.scrollHeight;
+      streamBuffer = s.text;
+      chrome.storage.session.set({ ui_stream_buffer: streamBuffer });
+      persistMessagesDebounced(false);
+    } catch {}
+    renderThrottleTimer = null;
+  }, 90);
 }
 
 function endStream(totalSeconds, steps) {
