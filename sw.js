@@ -1,6 +1,8 @@
 // Service worker orchestrator: OpenRouter LLM, MCP stubs, tool dispatch
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+// Track active runs per tab to support cancellation
+const activeRuns = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Agent Sidebar installed');
@@ -227,20 +229,21 @@ async function mcp_rag_query(q) {
 }
 
 // OpenRouter tool-calling
-async function openrouterCall(messages, tools) {
+async function openrouterCall(messages, tools, signal) {
   const { openrouterKey, model = 'anthropic/claude-3.7-sonnet' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
   const body = { model, messages, tools, parallel_tool_calls: true };
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${openrouterKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
   if (!res.ok) throw new Error(`OpenRouter error: ${res.status}`);
   return res.json();
 }
 
-async function openrouterStream(messages, tools, tabId) {
+async function openrouterStream(messages, tools, tabId, signal) {
   const { openrouterKey, model = 'anthropic/claude-3.7-sonnet' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
   const body = { model, messages, tools, parallel_tool_calls: true, stream: true };
@@ -251,7 +254,8 @@ async function openrouterStream(messages, tools, tabId) {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
   if (!res.ok || !res.body) throw new Error(`OpenRouter stream error: ${res.status}`);
 
@@ -264,6 +268,10 @@ async function openrouterStream(messages, tools, tabId) {
   let abortedForTools = false;
 
   while (true) {
+    if (signal && signal.aborted) {
+      chrome.runtime.sendMessage({ type: 'SIDE_STREAM_ABORT', tabId });
+      return { aborted: true };
+    }
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
@@ -405,6 +413,9 @@ async function handleSideInput(tabId, content) {
   let currentTabId = tabId;
   status(currentTabId, 'Thinking...', 'working');
   const tools = buildToolSchemas();
+  const controller = new AbortController();
+  const signal = controller.signal;
+  activeRuns.set(currentTabId, controller);
   
   let messages = await getHistory();
   if (messages.length === 0) {
@@ -469,7 +480,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
     const steps = [];
 
     for (let i = 0; i < MAX_TURNS; i++) {
-      const completion = await openrouterCall(messages, tools);
+      const completion = await openrouterCall(messages, tools, signal);
       const choice = completion.choices?.[0];
       if (!choice) throw new Error('No choices from OpenRouter');
 
@@ -534,7 +545,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       if (assistantMessage.content) {
         // Try true SSE streaming first (now that message channel handling is fixed)
         try {
-          const s = await openrouterStream(messages, tools, currentTabId);
+          const s = await openrouterStream(messages, tools, currentTabId, signal);
           if (s?.streamed) {
             const totalDuration = Math.round((Date.now() - startTime) / 1000);
             chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, steps, tabId: currentTabId });
@@ -585,6 +596,9 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
   } catch (e) {
     const totalDuration = Math.round((Date.now() - startTime) / 1000);
     const errMsg = String(e || '');
+    if (errMsg.includes('AbortError')) {
+      chrome.runtime.sendMessage({ type: 'SIDE_ASSISTANT', text: 'Cancelled.', totalDuration, tabId: currentTabId });
+    } else
     // Treat transient JSON parse/network errors as non-fatal; finalize politely
     if (/Unexpected end of JSON input/i.test(errMsg)) {
       try { chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: 'Completed the requested actions.', steps: [], totalDuration, tabId: currentTabId }); } catch {}
@@ -593,6 +607,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
     }
   } finally {
     status(currentTabId, '', 'idle');
+    try { activeRuns.delete(currentTabId); } catch {}
   }
 }
 
@@ -623,6 +638,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg?.type === 'CLEAR_HISTORY') {
     (async () => { await clearHistory(); })();
+    return false;
+  }
+  if (msg?.type === 'CANCEL_RUN') {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabId = tabs && tabs[0] && tabs[0].id;
+        const controller = tabId ? activeRuns.get(tabId) : null;
+        if (controller) controller.abort();
+      } catch {}
+    })();
     return false;
   }
 });

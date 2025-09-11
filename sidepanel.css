@@ -229,7 +229,7 @@ details[open] > summary ~ * {
 
 #chat-form button.loading {
   color: transparent;
-  cursor: wait;
+  cursor: pointer;
 }
 
 #chat-form button .loader {
@@ -247,6 +247,23 @@ details[open] > summary ~ * {
   animation: spin 1s linear infinite;
 }
 
+/* cancel stop icon inside loader */
+.cancel-stop {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  margin-left: -6px;
+  background: #fff; /* white */
+  border-radius: 2px;
+}
+
+#chat-form button.loading .cancel-stop { display: block; }
+#chat-form button.loading .loader { display: none; }
+
 #chat-form button svg {
   transition: opacity 0.2s;
 }
@@ -256,7 +273,7 @@ details[open] > summary ~ * {
 }
 
 #chat-form button.loading .loader {
-  display: inline-block;
+  display: none;
 }
 
 @keyframes spin {

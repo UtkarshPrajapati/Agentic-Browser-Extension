@@ -298,6 +298,11 @@ els.form.addEventListener('submit', async (e) => {
   button.disabled = true;
   els.input.disabled = true;
 
+  // Allow cancelling from the stop icon inside the loader
+  const stop = button.querySelector('.cancel-stop');
+  const onCancel = () => { try { chrome.runtime.sendMessage({ type: 'CANCEL_RUN' }); } catch {} };
+  stop?.addEventListener('click', onCancel, { once: true });
+
   createThinkingBlock();
   chrome.runtime.sendMessage({ type: 'SIDE_INPUT', tabId, content });
 });
