@@ -546,23 +546,29 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
         // Try true SSE streaming first (now that message channel handling is fixed)
         try {
           const s = await openrouterStream(messages, tools, currentTabId, signal);
+          if (s?.aborted) throw new Error('AbortError');
           if (s?.streamed) {
             const totalDuration = Math.round((Date.now() - startTime) / 1000);
             chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, steps, tabId: currentTabId });
             finalAnswerGenerated = true;
             break;
           }
-        } catch {}
+        } catch (e) {
+          if (String(e).includes('AbortError')) throw e;
+          // Other errors will fall through to simulated streaming
+        }
 
         // Fallback: simulate streaming by chunking locally
         try {
           const text = String(assistantMessage.content || '');
           chrome.runtime.sendMessage({ type: 'SIDE_STREAM_START', tabId: currentTabId });
           const parts = text
-            .split(/(?<=[.!?])\s+(?=[A-Z"'`\-\d])/)
+            .split(/(?<=[.!?])\s+(?=[A-Z"'`-\d])/)
             .flatMap(p => p.match(/.{1,160}(\s|$)/g) || [p]);
           for (const piece of parts) {
+            if (signal.aborted) throw new Error('AbortError');
             chrome.runtime.sendMessage({ type: 'SIDE_STREAM_DELTA', text: piece, tabId: currentTabId });
+            // Small delay so the UI can paint progressively
             await new Promise(r => setTimeout(r, 60));
           }
           const totalDuration = Math.round((Date.now() - startTime) / 1000);
