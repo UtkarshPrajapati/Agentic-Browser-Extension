@@ -333,6 +333,8 @@ details[open] > summary ~ * {
   border-left: 2px solid var(--border);
   padding-left: 18px;
   margin-left: 8px;
+  /* Ensure the trace line sits behind the circle */
+  z-index: 0;
 }
 
 .thinking-block .step {
@@ -351,10 +353,14 @@ details[open] > summary ~ * {
 .thinking-block .timeline { width: 0; align-items: center; }
 .thinking-block .timeline-circle {
   position: absolute;
-  left: -30px; /* center over border-left: 2px with padding-left: 18px and 20px circle */
-  top: 18px;
+  /* Center the 20px circle over the 2px left spine using padding-left: 18px */
+  left: -30px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 20px;
   height: 20px;
+  background: var(--bg); /* mask the left spine behind the hollow circle */
+  z-index: 1;
 }
 .thinking-block .step:hover .timeline-circle {
   background-color: var(--accent);

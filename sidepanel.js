@@ -145,6 +145,16 @@ function appendStreamText(text) {
 function endStream(totalSeconds, steps) {
   if (!streamingState) return;
   const finalMsgEl = streamingState.el;
+  // Force a final render of any pending buffered text before closing
+  try {
+    if (renderThrottleTimer) {
+      clearTimeout(renderThrottleTimer);
+      renderThrottleTimer = null;
+    }
+    if (streamingState.contentEl && typeof streamingState.text === 'string') {
+      streamingState.contentEl.innerHTML = renderMarkdown(streamingState.text);
+    }
+  } catch {}
   const hadText = !!(streamingState.text && String(streamingState.text).trim().length);
   if (hadText) {
     try { finalMsgEl.removeAttribute('data-streaming'); } catch {}
@@ -468,13 +478,9 @@ chrome.runtime.onMessage.addListener((msg) => {
       appendStreamText(msg.text || '');
     }
     if (msg.type === 'SIDE_STREAM_ABORT') {
+      // Always remove any partial streaming bubble to avoid showing truncated text
       if (streamingState?.el) {
-        const hadText = !!(streamingState.text && streamingState.text.length);
-        if (hadText) {
-          try { streamingState.el.removeAttribute('data-streaming'); } catch {}
-        } else {
-          try { streamingState.el.remove(); } catch {}
-        }
+        try { streamingState.el.remove(); } catch {}
       }
       streamingState = null;
       streamBuffer = '';
@@ -637,8 +643,8 @@ chrome.runtime.onMessage.addListener((msg) => {
           }
         }
 
-        // Fallback: if neither condition matched, append plain text into a new timeline step
-        {
+        // Fallback: append plain text into a new timeline step (skip generic "Thinking..." noise)
+        if (typeof msg.text === 'string' && msg.text.trim() && !/^thinking\b/i.test(msg.text)) {
           const stepWrapper = document.createElement('div');
           stepWrapper.className = 'step';
           stepWrapper.innerHTML = `
@@ -668,7 +674,7 @@ chrome.runtime.onMessage.addListener((msg) => {
           if (lastStep) lastStep.classList.add('completed');
           const summary = thinkingState.el.querySelector('summary');
           summary.innerHTML = `Finished in ${thinkingState.seconds} seconds`;
-          try { thinkingState.el.open = false; } catch {}
+          // Keep the timeline open for the user to review; do not auto-collapse
           thinkingState = null;
         }
         const button = els.form.querySelector('button[type="submit"]');
