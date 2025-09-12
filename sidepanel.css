@@ -418,6 +418,9 @@ details[open] > summary ~ * {
   font-weight: 500;
   position: relative;
   transition: background 0.2s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #chat-form button.loading {
