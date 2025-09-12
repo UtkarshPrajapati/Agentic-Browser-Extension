@@ -32,6 +32,12 @@
     <div id="chat-panel" class="tab-panel active">
       <section class="sp-chat">
         <div id="messages" class="messages"></div>
+        <div id="suggestion-chips" class="suggestion-chips">
+            <button type="button" class="suggestion-chip" data-prefix="Summarise: ">Summarise</button>
+            <button type="button" class="suggestion-chip" data-prefix="Explain in depth: ">Explain in depth</button>
+            <button type="button" class="suggestion-chip" data-prefix="Extract key points: ">Extract key points</button>
+            <button type="button" class="suggestion-chip" data-prefix="Give examples of this: ">Give examples of this</button>
+        </div>
         <form id="chat-form">
           <input id="user-input" type="text" placeholder="Ask about this page or say what to do..." autocomplete="off" />
           <button type="submit" title="Send">

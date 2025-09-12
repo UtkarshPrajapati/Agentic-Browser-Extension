@@ -4,6 +4,7 @@ const els = {
   messages: document.getElementById('messages'),
   form: document.getElementById('chat-form'),
   input: document.getElementById('user-input'),
+  chips: document.getElementById('suggestion-chips'),
   key: document.getElementById('openrouter-key'),
   model: document.getElementById('model'),
   allowlist: document.getElementById('allowlist'),
@@ -68,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (activeTab) {
     moveGlider(activeTab);
   }
+  initSuggestionChips();
 });
 
 // Persist and hydrate UI across tabs/windows
@@ -123,6 +125,8 @@ async function hydrateMessages() {
       }
     }
   } catch {}
+  // Update chip visibility after hydration
+  updateChipsVisibility();
 }
 
 function ensureStreamBubble() {
@@ -274,6 +278,7 @@ function addMessage(role, text) {
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
   persistMessagesDebounced(true);
+  updateChipsVisibility();
   return div;
 }
 
@@ -284,6 +289,7 @@ function addMessageHtml(role, html) {
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
   persistMessagesDebounced(true);
+  updateChipsVisibility();
 }
 
 function basicSanitize(text) {
@@ -446,16 +452,16 @@ els.clear?.addEventListener('click', async () => {
   els.messages.innerHTML = '';
   chrome.runtime.sendMessage({ type: 'CLEAR_HISTORY' });
   try { await chrome.storage.session.remove(['ui_messages_html', 'ui_stream_buffer']); } catch {}
+  updateChipsVisibility();
 });
 
-els.form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const content = els.input.value.trim();
+async function sendPrompt(text) {
+  const content = String(text || '').trim();
   if (!content) return;
   const tabId = await getActiveTabId();
   addMessage('user', content);
-  els.input.value = '';
-  
+  updateChipsVisibility();
+
   const button = els.form.querySelector('button[type="submit"]');
   button.classList.add('loading');
   button.disabled = true;
@@ -468,6 +474,15 @@ els.form.addEventListener('submit', async (e) => {
 
   createThinkingBlock();
   chrome.runtime.sendMessage({ type: 'SIDE_INPUT', tabId, content });
+}
+
+els.form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const content = els.input.value.trim();
+  if (!content) return;
+  els.input.value = '';
+  updateChipsVisibility();
+  await sendPrompt(content);
 });
 
 function createThinkingBlock() {
@@ -755,3 +770,28 @@ chrome.runtime.onMessage.addListener((msg) => {
 hydrateMessages();
 restoreSettings();
 
+
+function initSuggestionChips() {
+  if (!els.chips) return;
+  const onClick = (ev) => {
+    const btn = ev.target.closest('.suggestion-chip');
+    if (!btn) return;
+    const prefix = btn.getAttribute('data-prefix') || '';
+    // Send immediately, don't populate the input
+    sendPrompt(prefix);
+  };
+  els.chips.addEventListener('click', onClick);
+  updateChipsVisibility();
+}
+
+function hasMessages() {
+  return !!els.messages && els.messages.querySelector('.msg');
+}
+
+function updateChipsVisibility() {
+  if (!els.chips) return;
+  const show = !hasMessages() && !els.input.value.trim();
+  els.chips.classList.toggle('hidden', !show);
+}
+
+els.input.addEventListener('input', () => updateChipsVisibility());

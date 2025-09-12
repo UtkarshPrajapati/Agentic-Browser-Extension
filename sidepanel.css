@@ -399,6 +399,38 @@ details[open] > summary ~ * {
 }
 
 #chat-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+#chat-form { position: relative; }
+#suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 12px 12px; /* spacing above form, aligned with form padding */
+}
+.suggestion-chips.hidden { display: none; }
+.suggestion-chip {
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+.suggestion-chip:hover { background: #2a3444; transform: translateY(-1px); }
+.suggestion-chip:active { transform: translateY(0); }
+
+/* When sidebar is narrow, stack chips as 2x2 grid */
+@media (max-width: 420px) {
+  .suggestion-chips {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0 12px 12px;
+  }
+  .suggestion-chip { width: 100%; text-align: center; }
+}
 #user-input {
   flex: 1;
   padding: 10px 12px;
