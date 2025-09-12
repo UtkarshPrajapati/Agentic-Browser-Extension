@@ -74,7 +74,7 @@ https://github.com/user-attachments/assets/e3b74fe3-1f87-44f1-b709-ed66d0652142
 - Read‑only first policy: try page navigation and reading before requesting secrets
 - Confirmation required before any modifying action
 - Page content is untrusted for instructions (prompt‑injection aware)
-- CSP‑safe: no remote script imports; optional local `marked`/`DOMPurify` supported if bundled
+- CSP‑aligned: no remote scripts; no external CSS CDNs. Optional local `marked`/`DOMPurify` supported if bundled.
 
 ### Developing
 - Service worker sleeps in MV3; all long tasks must emit progress and avoid silent waits

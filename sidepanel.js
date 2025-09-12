@@ -1,7 +1,6 @@
 // UI state and messaging bridge to service worker
 
 const els = {
-  toggle: document.getElementById('toggle-collapse'),
   messages: document.getElementById('messages'),
   form: document.getElementById('chat-form'),
   input: document.getElementById('user-input'),
@@ -114,6 +113,8 @@ function ensureStreamBubble() {
 
 let renderThrottleTimer = null;
 function appendStreamText(text) {
+  // Skip empty deltas to avoid creating empty bubbles
+  if (!text || !String(text).trim()) return;
   // Lazily create bubble on first content
   if (!streamingState || !streamingState.el || !streamingState.el.isConnected) {
     const div = document.createElement('div');
@@ -144,7 +145,12 @@ function appendStreamText(text) {
 function endStream(totalSeconds, steps) {
   if (!streamingState) return;
   const finalMsgEl = streamingState.el;
-  try { finalMsgEl.removeAttribute('data-streaming'); } catch {}
+  const hadText = !!(streamingState.text && String(streamingState.text).trim().length);
+  if (hadText) {
+    try { finalMsgEl.removeAttribute('data-streaming'); } catch {}
+  } else {
+    try { finalMsgEl.remove(); } catch {}
+  }
   // If a screenshot was taken, append preview + download link under the final streamed answer
   try {
     const shot = Array.isArray(steps) ? steps.find(s => s && s.isImage && s.jsonData?.dataUrl) : null;
@@ -250,8 +256,63 @@ function sanitize(html) {
   if (purify && typeof purify.sanitize === 'function') {
     return purify.sanitize(String(html), { USE_PROFILES: { html: true } });
   }
-  // Fallback: return raw HTML (extension context already isolates content scripts)
-  return String(html);
+  // Fallback: allowlist sanitizer to preserve basic formatting safely
+  try {
+    const ALLOWED_TAGS = new Set(['b','strong','i','em','u','code','pre','p','br','ul','ol','li','h1','h2','h3','h4','blockquote','a']);
+    const ALLOWED_ATTRS = {
+      a: new Set(['href','title','target','rel'])
+    };
+    const isSafeUrl = (url) => {
+      try {
+        const u = String(url || '').trim();
+        if (u.startsWith('#')) return true;
+        const parsed = new URL(u, 'https://example.com');
+        return ['http:','https:','mailto:','tel:'].includes(parsed.protocol);
+      } catch { return false; }
+    };
+    const tmp = document.createElement('div');
+    tmp.innerHTML = String(html);
+    const all = tmp.querySelectorAll('*');
+    all.forEach((el) => {
+      const tag = el.tagName ? el.tagName.toLowerCase() : '';
+      if (!ALLOWED_TAGS.has(tag)) {
+        const parent = el.parentNode;
+        if (parent) {
+          while (el.firstChild) parent.insertBefore(el.firstChild, el);
+          parent.removeChild(el);
+        }
+        return;
+      }
+      const allowed = ALLOWED_ATTRS[tag] || new Set();
+      Array.from(el.attributes || []).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith('on') || name === 'style' || name === 'srcdoc') {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (!allowed.has(name)) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (tag === 'a' && name === 'href') {
+          if (!isSafeUrl(attr.value)) {
+            el.setAttribute('href', '#');
+          }
+          if (el.getAttribute('target') === '_blank') {
+            const rel = (el.getAttribute('rel') || '').split(/\s+/).filter(Boolean);
+            if (!rel.includes('noopener')) rel.push('noopener');
+            if (!rel.includes('noreferrer')) rel.push('noreferrer');
+            el.setAttribute('rel', rel.join(' '));
+          } else {
+            el.removeAttribute('target');
+          }
+        }
+      });
+    });
+    return tmp.innerHTML;
+  } catch {
+    return basicSanitize(String(html));
+  }
 }
 
 function renderMarkdown(raw) {

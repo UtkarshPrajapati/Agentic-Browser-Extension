@@ -16,7 +16,7 @@ function highlightElement(target) {
   const overlay = ensureOverlay();
   const rect = target.getBoundingClientRect();
   const box = document.createElement('div');
-  box.style.cssText = `position:fixed;left:${rect.left + window.scrollX}px;top:${rect.top + window.scrollY}px;width:${rect.width}px;height:${rect.height}px;border:2px solid #6aa3ff;border-radius:6px;background:rgba(106,163,255,0.1);box-shadow:0 0 0 9999px rgba(0,0,0,0.35);pointer-events:none;transition:opacity .3s;`;
+  box.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;border:2px solid #6aa3ff;border-radius:6px;background:rgba(106,163,255,0.1);box-shadow:0 0 0 9999px rgba(0,0,0,0.35);pointer-events:none;transition:opacity .3s;`;
   overlay.appendChild(box);
   return box; // caller removes when done
 }
@@ -29,8 +29,13 @@ async function waitForUserConfirm(promptText) {
   return new Promise((resolve) => {
     try {
       const callId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random();
+      let done = false;
+      const timer = setTimeout(() => { if (!done) { done = true; resolve(false); } }, 10000);
       chrome.runtime.sendMessage({ type: 'CONFIRM_REQUEST', promptText, callId }, (resp) => {
-        resolve(!!(resp && resp.ok));
+        if (done) return;
+        done = true;
+        try { clearTimeout(timer); } catch {}
+        resolve(!!(resp && resp.ok && resp.callId === callId));
       });
     } catch (e) {
       resolve(false);
@@ -114,6 +119,7 @@ async function tool_read_page() {
 async function tool_click(selector) {
   const el = findElement(selector);
   if (!el) throw new Error(`Selector not found: ${selector}`);
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
   const hl = highlightElement(el);
   const ok = await waitForUserConfirm(`Click element matching selector: ${selector}?`);
   try { hl.remove(); } catch {}
@@ -131,6 +137,7 @@ function findClickableByText(text) {
 async function tool_click_text(text) {
   const el = findClickableByText(text);
   if (!el) throw new Error(`No clickable element containing text: ${text}`);
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
   const hl = highlightElement(el);
   const ok = await waitForUserConfirm(`Click the element containing text: "${text}"?`);
   try { hl.remove(); } catch {}
@@ -142,12 +149,14 @@ async function tool_click_text(text) {
 async function tool_type(selector, text) {
   const el = findElement(selector);
   if (!el) throw new Error(`Selector not found: ${selector}`);
-  highlightElement(el);
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+  const hl = highlightElement(el);
   const ok = await waitForUserConfirm(`Type into ${selector}: "${text}"?`);
   if (!ok) return { cancelled: true };
   el.focus();
   el.value = text;
   el.dispatchEvent(new Event('input', { bubbles: true }));
+  try { hl.remove(); } catch {}
   return { ok: true };
 }
 

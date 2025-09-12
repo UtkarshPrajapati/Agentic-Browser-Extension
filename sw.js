@@ -392,7 +392,7 @@ async function dispatchToolCall(tabId, call) {
 
 // New helper functions for conversation history
 async function getHistory() {
-  const data = await chrome.storage.session.get(['chat_history']);
+  const data = await chrome.storage.local.get(['chat_history']);
   return data['chat_history'] || [];
 }
 
@@ -412,14 +412,14 @@ async function saveHistory(messages) {
       }
       return m;
     });
-    await chrome.storage.session.set({ 'chat_history': compacted });
+    await chrome.storage.local.set({ 'chat_history': compacted });
   } catch {
-    try { await chrome.storage.session.set({ 'chat_history': messages }); } catch {}
+    try { await chrome.storage.local.set({ 'chat_history': messages }); } catch {}
   }
 }
 
 async function clearHistory() {
-  await chrome.storage.session.remove(['chat_history']);
+  await chrome.storage.local.remove(['chat_history']);
 }
 
 // Helper for human-friendly tool messages
@@ -550,9 +550,19 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
         } else if (s?.streamed) {
           const totalDuration = Math.round((Date.now() - startTime) / 1000);
           chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, steps, tabId: currentTabId });
-          // Persist streamed content to history as an assistant message
-          messages.push({ role: 'assistant', content: s.content || '' });
-          finalAnswerGenerated = true;
+          const streamedText = (s.content || '').trim();
+          if (streamedText.length > 0) {
+            // Persist streamed content to history as an assistant message
+            messages.push({ role: 'assistant', content: streamedText });
+            finalAnswerGenerated = true;
+          } else {
+            // No assistant text came through; synthesize a concise summary of actions
+            const summaryLines = steps.map((s, i) => `• ${s.humanReadable || s.title || 'Step ' + (i+1)}`).join('\n');
+            const auto = summaryLines ? `Here is what I did:\n${summaryLines}` : 'Finished the requested actions.';
+            chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: auto, steps, totalDuration, tabId: currentTabId });
+            messages.push({ role: 'assistant', content: auto });
+            finalAnswerGenerated = true;
+          }
           break;
         }
       } catch (e) {
@@ -693,7 +703,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try { chrome.runtime.sendMessage({ type: 'SIDE_CONFIRM', promptText, callId, tabId }); } catch {}
       const onResponse = (m) => {
         if (m && m.type === 'CONFIRM_RESPONSE' && m.callId === callId) {
-          try { sendResponse({ ok: !!m.ok }); } catch {}
+          try { sendResponse({ ok: !!m.ok, callId }); } catch {}
           chrome.runtime.onMessage.removeListener(onResponse);
         }
       };
