@@ -337,6 +337,25 @@ async function openrouterStream(messages, tools, tabId, signal) {
   return { streamed: true, content: fullText };
 }
 
+// Ask the model to produce a concise final answer (no tool recap) using gathered info
+async function requestFinalAnswer(messages, steps, signal) {
+  try {
+    const directive = {
+      role: 'system',
+      content: 'Finalize now. Provide the direct answer to the user\'s last request using the information gathered. Do NOT list or recap tools/actions. Return the deliverable the user asked for. If browsing/aggregation was used, synthesize results clearly. Be concise and high-signal.'
+    };
+    const nudge = {
+      role: 'user',
+      content: 'Please provide the final answer now. Do not describe steps or tools.'
+    };
+    const completion = await openrouterCall([...messages, directive, nudge], [], signal);
+    const choice = completion.choices?.[0];
+    const text = (choice?.message?.content || '').trim();
+    if (text) return text;
+  } catch {}
+  return '';
+}
+
 function fn(name, description, parameters) {
   return { type: 'function', function: { name, description, parameters } };
 }
@@ -556,11 +575,17 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
             messages.push({ role: 'assistant', content: streamedText });
             finalAnswerGenerated = true;
           } else {
-            // No assistant text came through; synthesize a concise summary of actions
-            const summaryLines = steps.map((s, i) => `• ${s.humanReadable || s.title || 'Step ' + (i+1)}`).join('\n');
-            const auto = summaryLines ? `Here is what I did:\n${summaryLines}` : 'Finished the requested actions.';
-            chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: auto, steps, totalDuration, tabId: currentTabId });
-            messages.push({ role: 'assistant', content: auto });
+            // No assistant text came through; first request a proper final answer
+            const forced = await requestFinalAnswer(messages, steps, signal);
+            if (forced && forced.trim().length > 0) {
+              chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: forced, steps, totalDuration, tabId: currentTabId });
+              messages.push({ role: 'assistant', content: forced });
+            } else {
+              // Last resort: minimal completion message (avoid listing steps)
+              const auto = 'Finished the requested actions.';
+              chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: auto, steps, totalDuration, tabId: currentTabId });
+              messages.push({ role: 'assistant', content: auto });
+            }
             finalAnswerGenerated = true;
           }
           break;
@@ -663,12 +688,18 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       }
     }
     
-    // If the loop finishes without a final text answer, craft an automatic summary.
+    // If the loop finishes without a final text answer, try to force a concise final answer.
     if (!finalAnswerGenerated) {
       const totalDuration = Math.round((Date.now() - startTime) / 1000);
-      const summaryLines = steps.map((s, i) => `• ${s.humanReadable || s.title || 'Step ' + (i+1)}`).join('\n');
-      const auto = summaryLines ? `Here is what I did:\n${summaryLines}` : 'Finished the requested actions.';
-      chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: auto, steps, totalDuration, tabId: currentTabId });
+      const forced = await requestFinalAnswer(messages, steps, signal);
+      if (forced && forced.trim().length > 0) {
+        chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: forced, steps, totalDuration, tabId: currentTabId });
+        messages.push({ role: 'assistant', content: forced });
+      } else {
+        const auto = 'Finished the requested actions.';
+        chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: auto, steps, totalDuration, tabId: currentTabId });
+        messages.push({ role: 'assistant', content: auto });
+      }
       finalAnswerGenerated = true;
     }
 
