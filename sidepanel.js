@@ -204,6 +204,17 @@ function endStream(totalSeconds, steps) {
       let contentHtml = '';
       if (step.humanReadable) contentHtml += `<div>${renderMarkdown(step.humanReadable)}</div>`;
       body.innerHTML = contentHtml;
+      // Input args viewer if present
+      if (step.input && typeof step.input === 'object') {
+        const inputDetails = document.createElement('details');
+        const inputSummary = document.createElement('summary');
+        inputSummary.textContent = 'View Input';
+        inputDetails.appendChild(inputSummary);
+        const preIn = document.createElement('pre');
+        try { preIn.textContent = JSON.stringify(step.input, null, 2); } catch { preIn.textContent = String(step.input); }
+        inputDetails.appendChild(preIn);
+        body.appendChild(inputDetails);
+      }
       if (step.isImage && step.jsonData?.dataUrl) {
         const img = document.createElement('img');
         img.src = step.jsonData.dataUrl;
@@ -608,7 +619,19 @@ chrome.runtime.onMessage.addListener((msg) => {
             if (stepDetail.humanReadable) {
               contentHtml += `<div>${renderMarkdown(stepDetail.humanReadable)}</div>`;
             }
+            // First set main HTML content
             body.innerHTML = contentHtml;
+            // Then append input args viewer if present
+            if (stepDetail.input && typeof stepDetail.input === 'object') {
+              const inputDetails = document.createElement('details');
+              const inputSummary = document.createElement('summary');
+              inputSummary.textContent = 'View Input';
+              inputDetails.appendChild(inputSummary);
+              const preIn = document.createElement('pre');
+              try { preIn.textContent = JSON.stringify(stepDetail.input, null, 2); } catch { preIn.textContent = String(stepDetail.input); }
+              inputDetails.appendChild(preIn);
+              body.appendChild(inputDetails);
+            }
 
             if (stepDetail.isImage && stepDetail.jsonData?.dataUrl) {
               const img = document.createElement('img');

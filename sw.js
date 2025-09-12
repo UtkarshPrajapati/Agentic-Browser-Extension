@@ -470,6 +470,13 @@ function getHumanToolFeedback(call, r) {
     return `Executed tool: ${name}`;
 }
 
+// Redact or reshape tool input arguments for safe display in UI
+function redactInputForTool(toolName, rawArgs) {
+  // Per user request, show full, unredacted arguments for ALL tools.
+  // We still clone to avoid mutation.
+  try { return JSON.parse(JSON.stringify(rawArgs || {})); } catch { return rawArgs || {}; }
+}
+
 
 async function handleSideInput(tabId, content) {
   const startTime = Date.now();
@@ -617,7 +624,15 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
 
           const humanReadable = getHumanToolFeedback(call, result);
 
-          // Send real-time expandable step detail to the UI
+          // Prepare sanitized input for UI
+          const inputArgs = (() => {
+            try {
+              const raw = call.function?.arguments ? JSON.parse(call.function.arguments) : (call.arguments || {});
+              return redactInputForTool(call.function.name, raw);
+            } catch { return {}; }
+          })();
+
+          // Send real-time expandable step detail to the UI (with input)
           try {
             chrome.runtime.sendMessage({
               type: 'SIDE_STATUS',
@@ -627,7 +642,8 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
                 title: `Action: ${call.function.name}`,
                 humanReadable,
                 jsonData: result,
-                isImage: (call.function.name === 'screenshot' && result.ok)
+                isImage: (call.function.name === 'screenshot' && result.ok),
+                input: inputArgs
               },
               tabId: currentTabId
             });
@@ -637,7 +653,8 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
             title: `Action: ${call.function.name}`,
             humanReadable: humanReadable,
             jsonData: result,
-            isImage: call.function.name === 'screenshot' && result.ok
+            isImage: call.function.name === 'screenshot' && result.ok,
+            input: inputArgs
           });
           
           const safeContent = (() => {
