@@ -50,7 +50,7 @@ https://github.com/user-attachments/assets/e3b74fe3-1f87-44f1-b709-ed66d0652142
    - Firefox (temporary): `about:debugging#/runtime/this-firefox` → Load Temporary Add‑on → select `manifest.firefox.json`
 4) Open the Side Panel, expand Settings, and set:
    - OpenRouter API Key
-   - Model (defaults to `anthropic/claude-3.7-sonnet`)
+   - Model (defaults to `openrouter/sonoma-sky-alpha`)
    - Allowlist (optional, comma‑separated domains)
 
 ### Usage Tips

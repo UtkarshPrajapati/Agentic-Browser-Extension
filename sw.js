@@ -151,6 +151,47 @@ async function openTabAndRead(url, waitMs = 10000) {
   return { id: t.id, url: final?.url || url, title: final?.title || '', page };
 }
 
+// Activate a tab by match and immediately read page context (up to waitMs)
+async function switchTabAndRead(match, waitMs = 10000) {
+  const tabs = await chrome.tabs.query({});
+  const needle = (match || '').toLowerCase().slice(0, 120);
+  function jaccardTokens(a, b) {
+    a = (a || '').toLowerCase(); b = (b || '').toLowerCase();
+    const tokenize = (s) => new Set(s.split(/[^a-z0-9]+/i).filter(Boolean));
+    const A = tokenize(a); const B = tokenize(b);
+    if (A.size === 0 && B.size === 0) return 1;
+    let inter = 0; for (const tok of A) if (B.has(tok)) inter++; const uni = A.size + B.size - inter; return uni ? inter / uni : 0;
+  }
+  let t = tabs.find(x => (x.title?.toLowerCase().includes(needle) || x.url?.toLowerCase().includes(needle)));
+  if (!t) {
+    let best = null; let bestScore = 0; const MAX_CHECK = 60; const toScan = tabs.slice(0, MAX_CHECK);
+    for (const x of toScan) {
+      const host = (() => { try { return new URL(x.url || '').hostname; } catch { return ''; } })();
+      const score = Math.max(jaccardTokens(x.title || '', needle), jaccardTokens(x.url || '', needle), jaccardTokens(host, needle));
+      if (score > bestScore) { bestScore = score; best = x; }
+      if (bestScore >= 0.9) break;
+    }
+    if (bestScore >= 0.55) t = best;
+  }
+  if (!t) return { id: undefined, url: undefined, title: undefined, page: null };
+  await chrome.tabs.update(t.id, { active: true });
+  const start = Date.now();
+  const maxWait = Math.max(0, Number.isFinite(waitMs) ? waitMs : 10000);
+  while (Date.now() - start < maxWait) {
+    const info = await getTab(t.id);
+    if (!info) break;
+    if (!info.pendingUrl && !info.status || info.status === 'complete') break;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  let page = null;
+  try {
+    const read = await callContentTool(t.id, 'read_page', {});
+    if (read && read.ok) page = read.result || null;
+  } catch {}
+  const final = await getTab(t.id);
+  return { id: t.id, url: final?.url || t.url, title: final?.title || t.title || '', page };
+}
+
 async function activateTabByMatch(match) {
   const tabs = await chrome.tabs.query({});
   const needle = (match || '').toLowerCase().slice(0, 120); // cap length to reduce work
@@ -277,7 +318,7 @@ async function mcp_rag_query(q) {
 
 // OpenRouter tool-calling
 async function openrouterCall(messages, tools, signal) {
-  const { openrouterKey, model = 'anthropic/claude-3.7-sonnet' } = await chrome.storage.local.get(['openrouterKey', 'model']);
+  const { openrouterKey, model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
   const body = { model, messages, tools, parallel_tool_calls: true };
   const res = await fetch(OPENROUTER_URL, {
@@ -291,7 +332,7 @@ async function openrouterCall(messages, tools, signal) {
 }
 
 async function openrouterStream(messages, tools, tabId, signal) {
-  const { openrouterKey, model = 'anthropic/claude-3.7-sonnet' } = await chrome.storage.local.get(['openrouterKey', 'model']);
+  const { openrouterKey, model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
   const body = { model, messages, tools, parallel_tool_calls: true, stream: true };
   const res = await fetch(OPENROUTER_URL, {
@@ -417,6 +458,7 @@ function buildToolSchemas() {
     fn('open_tab', 'Open a new tab to URL', { type: 'object', required: ['url'], properties: { url: { type: 'string' } } }),
     fn('open_tab_and_read', 'Open a new tab and read page context after load/timeout', { type: 'object', required: ['url'], properties: { url: { type: 'string' }, waitMs: { type: 'number' } } }),
     fn('switch_tab', 'Activate a tab by matching title or URL', { type: 'object', required: ['match'], properties: { match: { type: 'string' } } }),
+    fn('switch_tab_and_read', 'Switch to a matching tab and read page context', { type: 'object', required: ['match'], properties: { match: { type: 'string' }, waitMs: { type: 'number' } } }),
     fn('close_tab', 'Close a tab by matching title or URL', { type: 'object', required: ['match'], properties: { match: { type: 'string' } } }),
     fn('get_tabs', 'List open tabs', { type: 'object', properties: {} }),
     fn('screenshot', 'Capture visible tab image', { type: 'object', properties: {} }),
@@ -450,6 +492,10 @@ async function dispatchToolCall(tabId, call) {
       return { ok: true, result: out };
     }
     case 'switch_tab': return await activateTabByMatch(args.match);
+    case 'switch_tab_and_read': {
+      const out = await switchTabAndRead(args.match, args.waitMs);
+      return { ok: true, result: out };
+    }
     case 'close_tab': return await closeTabByMatch(args.match);
     // MCP
     case 'mcp.fetch.get': return await mcp_fetch_get(args);
@@ -517,6 +563,11 @@ function getHumanToolFeedback(call, r) {
         const t = tab.title || tab.url || '';
         const pageTitle = tab.page && tab.page.title ? `, read "${tab.page.title}"` : '';
         return `Opened: ${t}${pageTitle}`;
+    } else if (name === 'switch_tab_and_read') {
+        const tab = r.result || {};
+        const t = tab.title || tab.url || '';
+        const pageTitle = tab.page && tab.page.title ? `, read "${tab.page.title}"` : '';
+        return `Switched: ${t}${pageTitle}`;
     } else if (name === 'click_text' || name === 'click') {
         return `Clicked element.`;
     } else if (name === 'read_page') {
@@ -584,12 +635,12 @@ Your operation is a continuous loop of **Observe, Orient, Plan, Act, and Analyze
 **Your Toolbox**
 You have access to a set of tools to interact with the browser. Use them creatively and efficiently.
 *   **Page Interaction**: \`open_tab_and_read\` (preferred), \`read_page\`, \`click\`, \`click_text\`, \`type\`, \`scroll\`, \`extract_table\`, \`screenshot\`.
-*   **Tab & Browser Management**: \`get_tabs\`, \`open_tab\`, \`switch_tab\`, \`close_tab\`.
+*   **Tab & Browser Management**: \`get_tabs\`, \`open_tab\`, \`switch_tab\`, \`close_tab\`, \`switch_tab_and_read\` (preferred when you need content after switching).
 *   **Data & File Stubs (MCP)**: \`mcp.fetch.get\`, \`mcp.fs.read\`, \`mcp.fs.write\`, \`mcp.rag.query\`.
 
 **Tooling Guidance**
 - Prefer \`open_tab_and_read\` over sequential \`open_tab\` + \`read_page\` to reduce latency and ensure you work with a fresh page snapshot.
-- After switching tabs with \`switch_tab\`, if you need the page content, call \`read_page\` (or re-open with \`open_tab_and_read\` if navigating to a new URL).
+- Prefer \`switch_tab_and_read\` over sequential \`switch_tab\` + \`read_page\` when you need the page content after switching.
 - Never fabricate content from memory when a page read is feasible and safe. Ground summaries in actual page reads when the task requires current information.
 
 **Critical Security & Interaction Mandates**
