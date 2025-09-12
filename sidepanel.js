@@ -364,18 +364,26 @@ function renderMarkdown(raw) {
 }
 
 function basicMarkdown(text) {
-  let out = text
+  let out = String(text || '');
+  out = out.replace(/\r\n/g, '\n');
+  out = out
     .replace(/^####\s+(.*)$/gm, '<h4>$1</h4>')
     .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
     .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
-    .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>')
+    .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+  out = out
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>');
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   out = out.replace(/^(?:\s*[-*]\s+)(.*)$/gm, '<li>$1</li>');
   out = out.replace(/<\/li>\s*<li>/g, '</li><li>');
   out = out.replace(/(<li>.*?<\/li>)/gs, (m) => `<ul>${m}</ul>`);
   out = out.replace(/<ul>\s*<ul>/g, '<ul>').replace(/<\/ul>\s*<\/ul>/g, '</ul>');
-  out = out.replace(/\n/g, '<br/>');
+  out = out.replace(/\n/g, '<br/>' );
+  out = out.replace(/(?:<br\/>\s*){2,}/g, '<br/>' );
+  out = out.replace(/(<h[1-4][^>]*>.*?<\/h[1-4]>)(?:<br\/>\s*)+/g, '$1');
+  out = out.replace(/<ul>\s*(?:<br\/>\s*)+/g, '<ul>');
+  out = out.replace(/(?:<br\/>\s*)+<\/ul>/g, '</ul>');
   return out;
 }
 
