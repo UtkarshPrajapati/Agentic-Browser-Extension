@@ -31,6 +31,31 @@ function status(tabId, text, st = 'info') {
 }
 
 async function callContentTool(tabId, name, args) {
+  // Block content-script actions on internal browser pages (chrome://, comet://, etc.)
+  try {
+    const tinfo = await getTab(tabId);
+    const url = tinfo?.url || '';
+    const isInternal = (() => {
+      try {
+        const u = new URL(url);
+        const proto = (u.protocol || '').toLowerCase();
+        return (
+          proto.startsWith('chrome:') ||
+          proto.startsWith('edge:') ||
+          proto.startsWith('comet:') ||
+          proto.startsWith('about:') ||
+          proto.startsWith('opera:') ||
+          proto.startsWith('vivaldi:') ||
+          proto.startsWith('brave:') ||
+          proto.startsWith('chrome-extension:') ||
+          proto.startsWith('moz-extension:')
+        );
+      } catch { return false; }
+    })();
+    if (isInternal) {
+      return { ok: false, error: 'Cannot access an internal browser page' };
+    }
+  } catch {}
   const payload = { type: 'EXT_TOOL', name, args, callId: crypto.randomUUID() };
   function send() {
     return new Promise((resolve) => {
@@ -652,6 +677,9 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
           const result = await dispatchToolCall(currentTabId, call);
           
           if (call.function.name === 'open_tab' && result.ok && result.result?.id) {
+            currentTabId = result.result.id;
+          }
+          if (call.function.name === 'open_tab_and_read' && result.ok && result.result?.id) {
             currentTabId = result.result.id;
           }
           if (call.function.name === 'switch_tab' && result.ok && result.result?.id) {
