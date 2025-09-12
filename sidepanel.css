@@ -398,13 +398,17 @@ details[open] > summary ~ * {
   transition: opacity 0.2s;
 }
 
-#chat-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+#chat-form { display: flex; gap: 8px; padding: 12px 12px 0 12px; border-top: 1px solid var(--border); }
 #chat-form { position: relative; }
 #suggestion-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 12px 12px; /* spacing above form, aligned with form padding */
+  align-items: center;
+  align-content: center;
+  min-height: 40px;
+  padding: 6px 0;
+  margin: 0 12px 0; /* no bottom margin */
 }
 .suggestion-chips.hidden { display: none; }
 .suggestion-chip {
@@ -426,8 +430,11 @@ details[open] > summary ~ * {
   .suggestion-chips {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    align-content: center;
     gap: 8px;
-    margin: 0 12px 12px;
+    margin: 0 12px 0;
+    padding: 6px 0;
   }
   .suggestion-chip { width: 100%; text-align: center; }
 }
