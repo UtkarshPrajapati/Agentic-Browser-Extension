@@ -18,6 +18,26 @@ const els = {
   glider: document.querySelector('.glider'),
 };
 
+// Short, natural-language labels for tools (3-4 words max)
+const TOOL_SHORT_LABELS = {
+  'open_tab_and_read': 'Opening Link & Reading',
+  'open_tab': 'Opening Link',
+  'switch_tab': 'Switching Tab',
+  'close_tab': 'Closing Tab',
+  'get_tabs': 'Listing Tabs',
+  'read_page': 'Reading Page',
+  'click_text': 'Clicking Text',
+  'click': 'Clicking Element',
+  'type': 'Typing Text',
+  'scroll': 'Scrolling',
+  'extract_table': 'Extracting Table',
+  'screenshot': 'Taking Screenshot',
+  'mcp.fetch.get': 'Fetching URL',
+  'mcp.fs.read': 'Reading File',
+  'mcp.fs.write': 'Writing File',
+  'mcp.rag.query': 'Searching Notes'
+};
+
 let thinkingState = null;
 let streamingState = null;
 
@@ -590,7 +610,17 @@ chrome.runtime.onMessage.addListener((msg) => {
           stepContent.className = 'step-content';
           // Show the executing text as the visible summary
           const header = document.createElement('div');
-          header.innerHTML = renderMarkdown(`**${msg.text}**`);
+          // Replace the verbose tool name with a short label when available
+          try {
+            const m = msg.text.match(/^Executing:\s+(.+)$/i);
+            const toolName = m && m[1] ? m[1].trim() : '';
+            const short = TOOL_SHORT_LABELS[toolName] || toolName;
+            header.innerHTML = renderMarkdown(`**${short}**`);
+          } catch {
+            // Fallback: strip the Executing: prefix if present
+            const cleaned = String(msg.text || '').replace(/^Executing:\s+/i, '');
+            header.innerHTML = renderMarkdown(`**${cleaned}**`);
+          }
           stepContent.appendChild(header);
           stepWrapper.appendChild(stepContent);
           thinkingState.traceEl.appendChild(stepWrapper);

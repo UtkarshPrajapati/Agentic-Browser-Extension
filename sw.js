@@ -526,6 +526,26 @@ function getHumanToolFeedback(call, r) {
     return `Executed tool: ${name}`;
 }
 
+// Short, natural-language labels for tools (3-4 words max)
+const TOOL_SHORT_LABELS = {
+  'open_tab_and_read': 'Opening Link & Reading',
+  'open_tab': 'Opening Link',
+  'switch_tab': 'Switching Tab',
+  'close_tab': 'Closing Tab',
+  'get_tabs': 'Listing Tabs',
+  'read_page': 'Reading Page',
+  'click_text': 'Clicking Text',
+  'click': 'Clicking Element',
+  'type': 'Typing Text',
+  'scroll': 'Scrolling',
+  'extract_table': 'Extracting Table',
+  'screenshot': 'Taking Screenshot',
+  'mcp.fetch.get': 'Fetching URL',
+  'mcp.fs.read': 'Reading File',
+  'mcp.fs.write': 'Writing File',
+  'mcp.rag.query': 'Searching Notes'
+};
+
 // Redact or reshape tool input arguments for safe display in UI
 function redactInputForTool(toolName, rawArgs) {
   // Per user request, show full, unredacted arguments for ALL tools.
