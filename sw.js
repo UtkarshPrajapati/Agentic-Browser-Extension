@@ -661,7 +661,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
         chrome.runtime.sendMessage({
           type: 'SIDE_STATUS',
           status: 'working',
-          text: 'Executed read_page',
+          text: 'Reading Page',
           stepDetail: {
             title: 'Action: read_page',
             humanReadable: 'Read current page context.',

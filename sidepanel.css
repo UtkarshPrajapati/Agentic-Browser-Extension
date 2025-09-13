@@ -406,6 +406,7 @@ details[open] > summary ~ * {
   gap: 6px;
   align-items: center;
   align-content: center;
+  justify-content: center;
   min-height: 40px;
   padding: 6px 0;
   margin: 0 12px 0; /* no bottom margin */
@@ -432,6 +433,7 @@ details[open] > summary ~ * {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: center;
     align-content: center;
+    justify-content: center;
     gap: 8px;
     margin: 0 12px 0;
     padding: 6px 0;

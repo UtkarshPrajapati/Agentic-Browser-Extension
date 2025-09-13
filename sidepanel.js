@@ -777,7 +777,8 @@ function initSuggestionChips() {
     const btn = ev.target.closest('.suggestion-chip');
     if (!btn) return;
     const prefix = btn.getAttribute('data-prefix') || '';
-    // Send immediately, don't populate the input
+    // Hide immediately and send, don't populate the input
+    try { els.chips.classList.add('hidden'); } catch {}
     sendPrompt(prefix);
   };
   els.chips.addEventListener('click', onClick);
@@ -790,7 +791,7 @@ function hasMessages() {
 
 function updateChipsVisibility() {
   if (!els.chips) return;
-  const show = !hasMessages() && !els.input.value.trim();
+  const show = !hasMessages();
   els.chips.classList.toggle('hidden', !show);
 }
 
