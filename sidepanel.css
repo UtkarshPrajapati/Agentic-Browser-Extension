@@ -568,3 +568,14 @@ details[open] > summary ~ * {
 .stream-content { white-space: normal; }
 .stream-footer { margin-top: 6px; font-size: 12px; color: var(--fg-muted); }
 
+.step:not(.completed) .timeline-circle::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
