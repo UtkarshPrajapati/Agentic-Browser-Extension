@@ -305,7 +305,7 @@ function sanitize(html) {
   }
   // Fallback: allowlist sanitizer to preserve basic formatting safely
   try {
-    const ALLOWED_TAGS = new Set(['b','strong','i','em','u','code','pre','p','br','ul','ol','li','h1','h2','h3','h4','blockquote','a']);
+    const ALLOWED_TAGS = new Set(['b','strong','i','em','u','code','pre','p','br','ul','ol','li','h1','h2','h3','h4','blockquote','a','table','thead','tbody','tr','th','td']);
     const ALLOWED_ATTRS = {
       a: new Set(['href','title','target','rel'])
     };
@@ -369,6 +369,42 @@ function renderMarkdown(raw) {
   return enhanceLinks(sanitize(md));
 }
 
+// Convert simple GitHub-style pipe tables (| a | b |) into HTML tables
+function convertPipeTablesToHtml(input) {
+  try {
+    const lines = String(input || '').split('\n');
+    const out = [];
+    for (let i = 0; i < lines.length; ) {
+      const headerLine = lines[i];
+      const isHeader = /^\s*\|.+\|\s*$/.test(headerLine || '');
+      const sepLine = lines[i + 1] || '';
+      const isSeparator = /^\s*\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|\s*$/.test(sepLine);
+      if (isHeader && isSeparator) {
+        const headerCells = headerLine.trim().slice(1, -1).split('|').map(s => s.trim());
+        const bodyRows = [];
+        i += 2;
+        while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+          bodyRows.push(lines[i]);
+          i++;
+        }
+        const thead = headerCells.map(c => `<th>${basicSanitize(c)}</th>`).join('');
+        const tbody = bodyRows.map(r => {
+          const cells = r.trim().slice(1, -1).split('|').map(s => s.trim());
+          const tds = cells.map(c => `<td>${basicSanitize(c)}</td>`).join('');
+          return `<tr>${tds}</tr>`;
+        }).join('');
+        out.push(`<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`);
+        continue;
+      }
+      out.push(headerLine);
+      i++;
+    }
+    return out.join('\n');
+  } catch {
+    return String(input || '');
+  }
+}
+
 function basicMarkdown(text) {
   let out = String(text || '');
   out = out.replace(/\r\n/g, '\n');
@@ -385,6 +421,7 @@ function basicMarkdown(text) {
   out = out.replace(/<\/li>\s*<li>/g, '</li><li>');
   out = out.replace(/(<li>.*?<\/li>)/gs, (m) => `<ul>${m}</ul>`);
   out = out.replace(/<ul>\s*<ul>/g, '<ul>').replace(/<\/ul>\s*<\/ul>/g, '</ul>');
+  out = convertPipeTablesToHtml(out);
   out = out.replace(/\n/g, '<br/>' );
   out = out.replace(/(?:<br\/>\s*){2,}/g, '<br/>' );
   out = out.replace(/(<h[1-4][^>]*>.*?<\/h[1-4]>)(?:<br\/>\s*)+/g, '$1');
