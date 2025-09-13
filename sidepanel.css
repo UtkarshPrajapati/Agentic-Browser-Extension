@@ -220,7 +220,7 @@ html, body {
 .sp-settings button:hover { background: var(--accent); }
 
 .sp-chat { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 .msg {
   padding: 10px 14px;
   border: 1px solid var(--border);
@@ -242,7 +242,8 @@ html, body {
   border-bottom-left-radius: 4px;
 }
 .msg .role { display: none; } /* Role is now indicated by position */
-.msg details { border: 1px dashed var(--border); border-radius: 6px; padding: 6px 8px; margin-top: 8px; background: var(--bg); }
+.msg details { border: 1px dashed var(--border); border-radius: 6px; padding: 6px 8px; margin-top: 8px; background: var(--bg); max-width: 100%; overflow-x: hidden; }
+.msg details, .msg details * { word-break: break-word; overflow-wrap: anywhere; }
 .msg details > summary { cursor: pointer; color: var(--fg-muted); font-size: 13px; }
 .thumb { max-width: 100%; border-radius: 6px; margin-top: 8px; border: 1px solid var(--border); }
 
@@ -306,6 +307,7 @@ details[open] > summary ~ * {
 
 .step-content {
   flex: 1;
+  min-width: 0;
 }
 
 .checkmark {
@@ -534,6 +536,14 @@ details[open] > summary ~ * {
 .msg table { width: 100%; border-collapse: collapse; margin: 8px 0; }
 .msg thead th { background: var(--bg); color: var(--fg); }
 .msg th, .msg td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+
+/* Heavy JSON/text preview wrapping */
+.html-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
 
 /* Link enhancements */
 .msg a { color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); }

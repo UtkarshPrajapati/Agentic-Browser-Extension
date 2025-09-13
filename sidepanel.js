@@ -253,14 +253,7 @@ function endStream(totalSeconds, steps) {
         body.appendChild(a);
       }
       if (step.jsonData) {
-        const jsonDetails = document.createElement('details');
-        const jsonSummary = document.createElement('summary');
-        jsonSummary.textContent = 'View Raw Result';
-        jsonDetails.appendChild(jsonSummary);
-        const pre = document.createElement('pre');
-        pre.textContent = JSON.stringify(step.jsonData, null, 2);
-        jsonDetails.appendChild(pre);
-        body.appendChild(jsonDetails);
+        body.appendChild(createJsonViewer(step.jsonData));
       }
       stepDetailsEl.appendChild(body);
       details.appendChild(stepDetailsEl);
@@ -472,6 +465,112 @@ function enhanceLinks(html) {
   } catch {
     return html;
   }
+}
+
+// Build a JSON viewer with heavy HTML/text fields truncated and an incremental preview
+function createJsonViewer(jsonData) {
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'View Raw Result';
+  details.appendChild(summary);
+
+  // Stringify with placeholder for any key exactly named 'html' or 'text'
+  const placeholderFor = (name, len) => `[${name} omitted: ${len} chars]`;
+  let hasHeavy = false;
+  const safeString = (() => {
+    try {
+      return JSON.stringify(jsonData, (key, value) => {
+        if (key && key.toLowerCase && typeof value === 'string') {
+          const k = key.toLowerCase();
+          if (k === 'html' || k === 'text') {
+            hasHeavy = true;
+            return placeholderFor(k, value.length);
+          }
+        }
+        return value;
+      }, 2);
+    } catch {
+      try { return JSON.stringify(jsonData); } catch { return String(jsonData); }
+    }
+  })();
+
+  const pre = document.createElement('pre');
+  pre.textContent = safeString;
+  details.appendChild(pre);
+
+  // If we found an HTML/text field, provide an incremental preview viewer
+  if (hasHeavy) {
+    const findFirstHeavy = (obj) => {
+      try {
+        const stack = [{ value: obj, path: [] }];
+        while (stack.length) {
+          const { value, path } = stack.shift();
+          if (value && typeof value === 'object') {
+            for (const k of Object.keys(value)) {
+              const v = value[k];
+              const p = path.concat(k);
+              if (k && k.toLowerCase && typeof v === 'string') {
+                const kl = k.toLowerCase();
+                if (kl === 'html' || kl === 'text') {
+                  return { key: kl, value: v, path: p };
+                }
+              }
+              if (v && typeof v === 'object') stack.push({ value: v, path: p });
+            }
+          }
+        }
+      } catch {}
+      return null;
+    };
+    const hit = findFirstHeavy(jsonData);
+    if (hit && typeof hit.value === 'string') {
+      const container = document.createElement('div');
+      container.style.marginTop = '8px';
+      const hint = document.createElement('div');
+      hint.style.fontSize = '12px';
+      hint.style.color = 'var(--fg-muted)';
+      hint.textContent = `${hit.key.toUpperCase()} preview (${hit.path.join('.')}):`;
+      container.appendChild(hint);
+
+      const preview = document.createElement('pre');
+      preview.className = 'html-preview';
+      preview.style.maxHeight = '220px';
+      preview.style.overflow = 'auto';
+      container.appendChild(preview);
+
+      const controls = document.createElement('div');
+      controls.style.display = 'flex';
+      controls.style.gap = '8px';
+      controls.style.marginTop = '6px';
+      const moreBtn = document.createElement('button');
+      moreBtn.textContent = 'Read more (+500)';
+      moreBtn.className = 'confirm-btn';
+      const allBtn = document.createElement('button');
+      allBtn.textContent = 'Show all';
+      allBtn.className = 'confirm-btn';
+      controls.appendChild(moreBtn);
+      controls.appendChild(allBtn);
+      container.appendChild(controls);
+
+      const FULL = hit.value;
+      let shown = 1000;
+      const STEP = 500;
+      const render = () => {
+        const slice = FULL.slice(0, shown);
+        preview.textContent = slice;
+        if (shown >= FULL.length) {
+          moreBtn.disabled = true;
+          allBtn.disabled = true;
+        }
+      };
+      moreBtn.addEventListener('click', () => { shown = Math.min(FULL.length, shown + STEP); render(); });
+      allBtn.addEventListener('click', () => { shown = FULL.length; render(); });
+      render();
+      details.appendChild(container);
+    }
+  }
+
+  return details;
 }
 
 async function getActiveTabId() {
@@ -746,14 +845,7 @@ chrome.runtime.onMessage.addListener((msg) => {
             }
 
             if (stepDetail.jsonData) {
-              const jsonDetails = document.createElement('details');
-              const jsonSummary = document.createElement('summary');
-              jsonSummary.textContent = 'View Raw Result';
-              jsonDetails.appendChild(jsonSummary);
-              const pre = document.createElement('pre');
-              pre.textContent = JSON.stringify(stepDetail.jsonData, null, 2);
-              jsonDetails.appendChild(pre);
-              body.appendChild(jsonDetails);
+              body.appendChild(createJsonViewer(stepDetail.jsonData));
             }
 
             detailsEl.appendChild(body);
