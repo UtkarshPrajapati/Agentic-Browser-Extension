@@ -387,10 +387,18 @@ function convertPipeTablesToHtml(input) {
           bodyRows.push(lines[i]);
           i++;
         }
-        const thead = headerCells.map(c => `<th>${basicSanitize(c)}</th>`).join('');
+        const thead = headerCells.map(c => `<th>${c}</th>`).join('');
         const tbody = bodyRows.map(r => {
           const cells = r.trim().slice(1, -1).split('|').map(s => s.trim());
-          const tds = cells.map(c => `<td>${basicSanitize(c)}</td>`).join('');
+          const formatCell = (c) => {
+            const parts = String(c).split(/<br\s*\/?>|\n/).map(s => s.trim()).filter(s => s);
+            if (parts.length && parts.every(p => /^[-*]\s+/.test(p))) {
+              const lis = parts.map(p => `<li>${p.replace(/^[-*]\s+/, '')}</li>`).join('');
+              return `<ul>${lis}</ul>`;
+            }
+            return c;
+          };
+          const tds = cells.map(c => `<td>${formatCell(c)}</td>`).join('');
           return `<tr>${tds}</tr>`;
         }).join('');
         out.push(`<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`);
