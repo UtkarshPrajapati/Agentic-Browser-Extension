@@ -319,6 +319,8 @@ async function mcp_rag_query(q) {
 // OpenRouter tool-calling
 // Simple in-memory cache for model capability lookups
 const modelCapsCache = new Map();
+// Runtime cache for providers/models that returned 404 no-tool-support
+const noToolSupportCache = new Map(); // key: modelId, value: true
 
 async function getModelCapabilities(modelId) {
   if (!modelId) return { supportsTools: true, supportsToolChoice: true, supportsParallelToolCalls: true };
@@ -348,7 +350,9 @@ async function openrouterCall(messages, tools, signal, toolChoice) {
   const modelId = String(model || '').trim();
   if (!modelId) throw new Error('OpenRouter model not set');
   const caps = await getModelCapabilities(model);
-  const body = { model, messages, tools };
+  const forceNoTools = !!noToolSupportCache.get(modelId);
+  const shouldSendTools = (toolChoice === 'none' || forceNoTools) ? false : (caps.supportsTools || (toolChoice && toolChoice !== 'none' && caps.supportsToolChoice));
+  const body = { model, messages, tools: shouldSendTools ? tools : [] };
   if (caps.supportsParallelToolCalls) body.parallel_tool_calls = true;
   if (toolChoice && caps.supportsToolChoice) body.tool_choice = toolChoice;
   const res = await fetch(OPENROUTER_URL, {
@@ -357,7 +361,14 @@ async function openrouterCall(messages, tools, signal, toolChoice) {
     body: JSON.stringify(body),
     signal
   });
-  if (!res.ok) throw new Error(`OpenRouter error: ${res.status}`);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const txt = await res.text();
+      try { const j = JSON.parse(txt); detail = j?.error?.message || txt; } catch { detail = txt; }
+    } catch {}
+    throw new Error(`OpenRouter error: ${res.status}${detail ? ' ' + detail : ''}`);
+  }
   return res.json();
 }
 
@@ -367,7 +378,9 @@ async function openrouterStream(messages, tools, tabId, signal, toolChoice) {
   const modelId = String(model || '').trim();
   if (!modelId) throw new Error('OpenRouter model not set');
   const caps = await getModelCapabilities(model);
-  const body = { model, messages, tools, stream: true };
+  const forceNoTools = !!noToolSupportCache.get(modelId);
+  const shouldSendTools = (toolChoice === 'none' || forceNoTools) ? false : (caps.supportsTools || (toolChoice && toolChoice !== 'none' && caps.supportsToolChoice));
+  const body = { model, messages, tools: shouldSendTools ? tools : [], stream: true };
   if (caps.supportsParallelToolCalls) body.parallel_tool_calls = true;
   if (toolChoice && caps.supportsToolChoice) body.tool_choice = toolChoice;
   const res = await fetch(OPENROUTER_URL, {
@@ -380,7 +393,14 @@ async function openrouterStream(messages, tools, tabId, signal, toolChoice) {
     body: JSON.stringify(body),
     signal
   });
-  if (!res.ok || !res.body) throw new Error(`OpenRouter stream error: ${res.status}`);
+  if (!res.ok || !res.body) {
+    let detail = '';
+    try {
+      const txt = await res.text();
+      try { const j = JSON.parse(txt); detail = j?.error?.message || txt; } catch { detail = txt; }
+    } catch {}
+    throw new Error(`OpenRouter stream error: ${res.status}${detail ? ' ' + detail : ''}`);
+  }
 
   chrome.runtime.sendMessage({ type: 'SIDE_STREAM_START', tabId });
 
@@ -538,6 +558,32 @@ async function dispatchToolCall(tabId, call) {
     case 'mcp.fs.write': return await mcp_fs_write(args.path, args.content);
     case 'mcp.rag.query': return await mcp_rag_query(args.q);
     default: return { ok: false, error: `Unknown tool ${name}` };
+  }
+}
+// Convert initial read_page tool messages to a plain system message for models/providers without tool support
+function convertInitReadToSystem(messages) {
+  try {
+    const out = [];
+    let initPayload = null;
+    for (const m of messages) {
+      if (m && m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+        const hasInit = m.tool_calls.some(tc => tc && tc.id === 'init_read');
+        if (hasInit) continue; // drop assistant tool_call message
+      }
+      if (m && m.role === 'tool' && m.tool_call_id === 'init_read') {
+        try { initPayload = JSON.parse(m.content || '{}'); } catch { initPayload = { content: m.content }; }
+        continue; // drop the tool message; we will re-insert as system
+      }
+      out.push(m);
+    }
+    if (initPayload) {
+      const sys = { role: 'system', content: `Initial page context (trimmed):\n${JSON.stringify(initPayload)}` };
+      const firstSysIdx = out.findIndex(mm => mm && mm.role === 'system');
+      if (firstSysIdx >= 0) out.splice(firstSysIdx + 1, 0, sys); else out.unshift(sys);
+    }
+    return out;
+  } catch {
+    return messages;
   }
 }
 
@@ -747,8 +793,8 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       try {
         const { model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['model']);
         const caps = await getModelCapabilities(model);
-        const toolChoice = caps.supportsTools ? 'auto' : 'none';
-        const s = await openrouterStream(messages, tools, currentTabId, signal, toolChoice);
+        let toolChoice = caps.supportsTools ? 'auto' : 'none';
+        let s = await openrouterStream(messages, tools, currentTabId, signal, toolChoice);
         if (s?.aborted) {
           // Model attempted tool calls; fall through to regular (non-streaming) call to get full tool payload
         } else if (s?.streamed) {
@@ -776,14 +822,51 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
           break;
         }
       } catch (e) {
+        const emsg = String(e || '');
+        const noToolSupport = /No endpoints found that support tool use/i.test(emsg) || (/OpenRouter stream error:\s*404/i.test(emsg));
         if (String(e).includes('AbortError')) throw e;
-        // Networking/SSE unsupported; proceed with non-streaming call
+        if (noToolSupport) {
+          try { noToolSupportCache.set(model, true); } catch {}
+          // Retry streaming without tools by converting init tool messages into system context
+          const fallbackMessages = convertInitReadToSystem(messages);
+          try {
+            const s2 = await openrouterStream(fallbackMessages, [], currentTabId, signal, 'none');
+            if (s2?.streamed) {
+              const totalDuration = Math.round((Date.now() - startTime) / 1000);
+              chrome.runtime.sendMessage({ type: 'SIDE_STREAM_END', totalDuration, steps, tabId: currentTabId });
+              const streamedText = (s2.content || '').trim();
+              if (streamedText.length > 0) {
+                messages = fallbackMessages;
+                messages.push({ role: 'assistant', content: streamedText });
+                finalAnswerGenerated = true;
+                break;
+              }
+            }
+          } catch {}
+          // If streaming fallback fails, proceed to non-streaming call below
+        }
+        // Networking/SSE unsupported or fallback failed; proceed with non-streaming call
       }
 
       const { model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['model']);
       const caps = await getModelCapabilities(model);
-      const toolChoice = caps.supportsTools ? 'auto' : 'none';
-      const completion = await openrouterCall(messages, tools, signal, toolChoice);
+      let toolChoice = caps.supportsTools ? 'auto' : 'none';
+      let completion;
+      try {
+        completion = await openrouterCall(messages, tools, signal, toolChoice);
+      } catch (err) {
+        const emsg = String(err || '');
+        const noToolSupport = /No endpoints found that support tool use/i.test(emsg) || (/OpenRouter error:\s*404/i.test(emsg) && toolChoice !== 'none');
+        if (noToolSupport) {
+          try { noToolSupportCache.set(model, true); } catch {}
+          const fallbackMessages = convertInitReadToSystem(messages);
+          toolChoice = 'none';
+          completion = await openrouterCall(fallbackMessages, [], signal, toolChoice);
+          messages = fallbackMessages;
+        } else {
+          throw err;
+        }
+      }
       const choice = completion.choices?.[0];
       if (!choice) throw new Error('No choices from OpenRouter');
 

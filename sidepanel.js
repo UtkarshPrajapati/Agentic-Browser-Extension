@@ -988,7 +988,8 @@ function renderModelDropdown(items, query) {
 function pickModel(id) {
   if (!id) return;
   els.model.value = id;
-  if (els.modelDropdown) els.modelDropdown.classList.add('hidden');
+  if (els.modelDropdown) { els.modelDropdown.classList.add('hidden'); els.modelDropdown.innerHTML = ''; }
+  try { if (document.activeElement === els.model) els.model.blur(); } catch {}
 }
 
 function buildDefaultLists() {
