@@ -228,6 +228,8 @@ html, body {
 .model-item:hover, .model-item.active { background: var(--bg-secondary); }
 .model-group { padding: 6px 10px; color: var(--fg-muted); font-size: 12px; position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--border); }
 .settings-status { margin-top: 8px; font-size: 12px; color: var(--fg-muted); min-height: 16px; }
+.input-error { border-color: #ef4444 !important; box-shadow: 0 0 0 2px rgba(239,68,68,.15); }
+.error-text { color: #ef4444; margin-top: 6px; font-size: 12px; }
 
 .sp-chat { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px; display: flex; flex-direction: column; gap: 12px; }

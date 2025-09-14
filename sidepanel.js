@@ -8,6 +8,7 @@ const els = {
   key: document.getElementById('openrouter-key'),
   model: document.getElementById('model'),
   modelDropdown: document.getElementById('model-dropdown'),
+  modelError: document.getElementById('model-error'),
   allowlist: document.getElementById('allowlist'),
   save: document.getElementById('save-settings'),
   clear: document.getElementById('clear-chat'),
@@ -590,7 +591,19 @@ async function restoreSettings() {
 
 async function saveSettings() {
   const allow = els.allowlist.value.split(',').map(s => s.trim()).filter(Boolean);
-  await chrome.storage.local.set({ openrouterKey: els.key.value, model: els.model.value, allowlist: allow });
+  const model = String(els.model.value || '').trim();
+  // Validate model not empty
+  if (!model) {
+    if (els.model) els.model.classList.add('input-error');
+    if (els.modelError) { els.modelError.textContent = 'Please choose a model.'; els.modelError.style.display = 'block'; }
+    if (els.settingsStatus) els.settingsStatus.textContent = '';
+    return;
+  }
+  // Clear errors
+  if (els.model) els.model.classList.remove('input-error');
+  if (els.modelError) els.modelError.style.display = 'none';
+
+  await chrome.storage.local.set({ openrouterKey: els.key.value, model, allowlist: allow });
   // Show confirmation in Settings tab instead of chat
   if (els.settingsStatus) {
     els.settingsStatus.textContent = 'Settings saved.';
@@ -1007,7 +1020,7 @@ function filterModels(query, onlyFree) {
   const paidItems = items.filter(m => !isFreeModel(m.id));
   return [
     { type: 'group', title: 'Free', items: freeItems },
-    { type: 'group', title: 'Paid (limited)', items: limitPaid(paidItems) }
+    { type: 'group', title: 'Paid', items: limitPaid(paidItems) }
   ];
 }
 
@@ -1045,10 +1058,17 @@ function initModelAutocomplete() {
   if (!els.model || !els.modelDropdown) return;
   els.model.addEventListener('click', async () => { await ensureModelsLoaded(); onModelInputFocusOrChange(); });
   els.model.addEventListener('input', onModelInputFocusOrChange);
+  els.model.addEventListener('input', () => {
+    const v = String(els.model.value || '').trim();
+    if (v) { els.model.classList.remove('input-error'); if (els.modelError) els.modelError.style.display = 'none'; }
+  });
   els.modelDropdown.addEventListener('click', (e) => {
     const item = e.target.closest('.model-item');
     if (!item) return;
     pickModel(item.getAttribute('data-id'));
+    // Clear errors after selection
+    if (els.model) els.model.classList.remove('input-error');
+    if (els.modelError) els.modelError.style.display = 'none';
   });
   document.addEventListener('click', (e) => {
     if (!els.modelDropdown.contains(e.target) && e.target !== els.model) {

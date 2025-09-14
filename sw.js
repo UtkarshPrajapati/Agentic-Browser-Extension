@@ -345,6 +345,8 @@ async function getModelCapabilities(modelId) {
 async function openrouterCall(messages, tools, signal, toolChoice) {
   const { openrouterKey, model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
+  const modelId = String(model || '').trim();
+  if (!modelId) throw new Error('OpenRouter model not set');
   const caps = await getModelCapabilities(model);
   const body = { model, messages, tools };
   if (caps.supportsParallelToolCalls) body.parallel_tool_calls = true;
@@ -362,6 +364,8 @@ async function openrouterCall(messages, tools, signal, toolChoice) {
 async function openrouterStream(messages, tools, tabId, signal, toolChoice) {
   const { openrouterKey, model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
+  const modelId = String(model || '').trim();
+  if (!modelId) throw new Error('OpenRouter model not set');
   const caps = await getModelCapabilities(model);
   const body = { model, messages, tools, stream: true };
   if (caps.supportsParallelToolCalls) body.parallel_tool_calls = true;
