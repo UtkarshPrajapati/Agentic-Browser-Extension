@@ -7,6 +7,7 @@ const els = {
   chips: document.getElementById('suggestion-chips'),
   key: document.getElementById('openrouter-key'),
   model: document.getElementById('model'),
+  modelDropdown: document.getElementById('model-dropdown'),
   allowlist: document.getElementById('allowlist'),
   save: document.getElementById('save-settings'),
   clear: document.getElementById('clear-chat'),
@@ -17,6 +18,7 @@ const els = {
   settingsPanel: document.getElementById('settings-panel'),
   aboutPanel: document.getElementById('about-panel'),
   glider: document.querySelector('.glider'),
+  settingsStatus: document.getElementById('settings-status'),
 };
 
 // Short, natural-language labels for tools (3-4 words max)
@@ -583,12 +585,17 @@ async function restoreSettings() {
   if (openrouterKey) els.key.value = openrouterKey;
   if (model) els.model.value = model;
   if (allowlist) els.allowlist.value = allowlist.join(', ');
+  try { await ensureModelsLoaded(); } catch {}
 }
 
 async function saveSettings() {
   const allow = els.allowlist.value.split(',').map(s => s.trim()).filter(Boolean);
   await chrome.storage.local.set({ openrouterKey: els.key.value, model: els.model.value, allowlist: allow });
-  addMessage('assistant', 'Settings saved.');
+  // Show confirmation in Settings tab instead of chat
+  if (els.settingsStatus) {
+    els.settingsStatus.textContent = 'Settings saved.';
+    setTimeout(() => { if (els.settingsStatus) els.settingsStatus.textContent = ''; }, 2000);
+  }
 }
 
 els.save.addEventListener('click', saveSettings);
@@ -906,6 +913,151 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 hydrateMessages();
 restoreSettings();
+// -------------------- Model autocomplete --------------------
+let allModels = [];
+let modelsLoaded = false;
+let dropdownHoverIndex = -1;
+
+async function fetchOpenRouterModels() {
+  try {
+    const { openrouterKey } = await chrome.storage.local.get(['openrouterKey']);
+    const headers = openrouterKey ? { 'Authorization': `Bearer ${openrouterKey}` } : {};
+    const res = await fetch('https://openrouter.ai/api/v1/models', { headers });
+    const data = await res.json().catch(() => ({}));
+    const list = Array.isArray(data?.data) ? data.data : (Array.isArray(data?.models) ? data.models : (Array.isArray(data) ? data : []));
+    // Normalize minimal fields
+    return (list || []).map(m => ({ id: m.id || m.slug || '', name: m.name || '', pricing: m.pricing || m.price || null })).filter(m => m.id);
+  } catch {
+    return [];
+  }
+}
+
+async function ensureModelsLoaded() {
+  if (modelsLoaded && allModels.length) return;
+  allModels = await fetchOpenRouterModels();
+  modelsLoaded = true;
+}
+
+function isFreeModel(id) {
+  return /:free\s*$/i.test(id || '');
+}
+
+function isStealthModel(id) {
+  return /^openrouter\//.test(id || '') && id !== 'openrouter/auto' && id !== 'openrouter/auto:free';
+}
+
+function fuzzyScore(hay, needle) {
+  hay = String(hay || '').toLowerCase();
+  needle = String(needle || '').toLowerCase();
+  if (!needle) return 0;
+  // Simple subsequence scoring with bonus for startswith and contiguous hits
+  let score = 0, j = 0, run = 0;
+  for (let i = 0; i < hay.length && j < needle.length; i++) {
+    if (hay[i] === needle[j]) {
+      j++; run++; score += 2 + Math.min(run, 3);
+    } else { run = 0; }
+  }
+  if (j < needle.length) return -1; // not a subsequence
+  if (hay.startsWith(needle)) score += 8;
+  return score;
+}
+
+function renderModelDropdown(items, query) {
+  const el = els.modelDropdown;
+  if (!el) return;
+  if (!items || items.length === 0) { el.innerHTML = ''; el.classList.add('hidden'); return; }
+  dropdownHoverIndex = -1;
+  const makeItem = (m) => `<div class="model-item" data-id="${m.id}">${m.id}${m.name && m.name !== m.id ? ` — <span style="color: var(--fg-muted)">${m.name}</span>` : ''}</div>`;
+  el.innerHTML = items.map(makeItem).join('');
+  el.classList.remove('hidden');
+}
+
+function pickModel(id) {
+  if (!id) return;
+  els.model.value = id;
+  if (els.modelDropdown) els.modelDropdown.classList.add('hidden');
+}
+
+function buildDefaultLists() {
+  const stealth = allModels.filter(m => isStealthModel(m.id));
+  const free = allModels.filter(m => isFreeModel(m.id));
+  return { stealth, free };
+}
+
+function limitPaid(items) {
+  // limit to keep list manageable
+  return items.slice(0, 50);
+}
+
+function filterModels(query, onlyFree) {
+  query = String(query || '').trim();
+  if (!query) {
+    const { stealth, free } = buildDefaultLists();
+    const list = [
+      { type: 'group', title: 'OpenRouter Stealth', items: stealth },
+      { type: 'group', title: 'Free', items: free }
+    ];
+    return list;
+  }
+  const scored = allModels.map(m => ({ m, s: fuzzyScore(m.id, query) })).filter(x => x.s >= 0);
+  let items = scored.sort((a,b) => b.s - a.s).map(x => x.m);
+  if (onlyFree) items = items.filter(m => isFreeModel(m.id));
+  // show all free, limit paid
+  const freeItems = items.filter(m => isFreeModel(m.id));
+  const paidItems = items.filter(m => !isFreeModel(m.id));
+  return [
+    { type: 'group', title: 'Free', items: freeItems },
+    { type: 'group', title: 'Paid (limited)', items: limitPaid(paidItems) }
+  ];
+}
+
+function flattenGroups(groups) {
+  const out = [];
+  for (const g of groups) {
+    if (!g.items.length) continue;
+    out.push({ type: 'header', title: g.title });
+    out.push(...g.items.map(m => ({ type: 'item', model: m })));
+  }
+  return out;
+}
+
+function renderGroups(groups) {
+  const el = els.modelDropdown;
+  if (!el) return;
+  const flat = flattenGroups(groups);
+  if (!flat.length) { el.innerHTML = ''; el.classList.add('hidden'); return; }
+  const html = flat.map(entry => {
+    if (entry.type === 'header') return `<div class="model-group">${entry.title}</div>`;
+    const m = entry.model;
+    return `<div class="model-item" data-id="${m.id}">${m.id}${m.name && m.name !== m.id ? ` — <span style=\"color: var(--fg-muted)\">${m.name}</span>` : ''}</div>`;
+  }).join('');
+  el.innerHTML = html;
+  el.classList.remove('hidden');
+}
+
+function onModelInputFocusOrChange() {
+  const q = els.model.value;
+  const groups = filterModels(q, false);
+  renderGroups(groups);
+}
+
+function initModelAutocomplete() {
+  if (!els.model || !els.modelDropdown) return;
+  els.model.addEventListener('click', async () => { await ensureModelsLoaded(); onModelInputFocusOrChange(); });
+  els.model.addEventListener('input', onModelInputFocusOrChange);
+  els.modelDropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('.model-item');
+    if (!item) return;
+    pickModel(item.getAttribute('data-id'));
+  });
+  document.addEventListener('click', (e) => {
+    if (!els.modelDropdown.contains(e.target) && e.target !== els.model) {
+      els.modelDropdown.classList.add('hidden');
+    }
+  });
+}
+
+initModelAutocomplete();
 
 
 function initSuggestionChips() {

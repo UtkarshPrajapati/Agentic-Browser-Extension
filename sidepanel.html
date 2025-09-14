@@ -57,13 +57,19 @@
           </label>
           <label>
             Model
-            <input id="model" type="text" value="openrouter/sonoma-sky-alpha" />
+            <div class="model-autocomplete">
+              <div class="model-row">
+                <input id="model" type="text" value="openrouter/sonoma-sky-alpha" autocomplete="off" />
+              </div>
+              <div id="model-dropdown" class="model-dropdown hidden"></div>
+            </div>
           </label>
           <label>
             Allowlist (comma-separated domains)
             <input id="allowlist" type="text" placeholder="example.com, another.com" />
           </label>
           <button id="save-settings">Save</button>
+          <div id="settings-status" class="settings-status" aria-live="polite"></div>
       </section>
     </div>
 
