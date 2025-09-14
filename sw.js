@@ -317,10 +317,38 @@ async function mcp_rag_query(q) {
 }
 
 // OpenRouter tool-calling
-async function openrouterCall(messages, tools, signal) {
+// Simple in-memory cache for model capability lookups
+const modelCapsCache = new Map();
+
+async function getModelCapabilities(modelId) {
+  if (!modelId) return { supportsTools: true, supportsToolChoice: true, supportsParallelToolCalls: true };
+  if (modelCapsCache.has(modelId)) return modelCapsCache.get(modelId);
+  try {
+    const { openrouterKey } = await chrome.storage.local.get(['openrouterKey']);
+    const headers = openrouterKey ? { 'Authorization': `Bearer ${openrouterKey}` } : {};
+    const res = await fetch('https://openrouter.ai/api/v1/models', { headers });
+    const data = await res.json().catch(() => ({}));
+    const list = Array.isArray(data?.data) ? data.data : (Array.isArray(data?.models) ? data.models : (Array.isArray(data) ? data : []));
+    const byId = (list || []).find(m => m?.id === modelId) || (list || []).find(m => (m?.id || '').split(':')[0] === (modelId || '').split(':')[0]);
+    const supported = byId?.supported_parameters || byId?.top_provider?.supported_parameters || [];
+    const supportsTools = Array.isArray(supported) && (supported.includes('tools') || supported.includes('function_calling'));
+    const supportsToolChoice = Array.isArray(supported) && supported.includes('tool_choice');
+    const supportsParallelToolCalls = Array.isArray(supported) && supported.includes('parallel_tool_calls');
+    const caps = { supportsTools, supportsToolChoice, supportsParallelToolCalls };
+    modelCapsCache.set(modelId, caps);
+    return caps;
+  } catch (e) {
+    // Default to allowing tools; we'll still guard message formatting locally
+    return { supportsTools: true, supportsToolChoice: true, supportsParallelToolCalls: true };
+  }
+}
+async function openrouterCall(messages, tools, signal, toolChoice) {
   const { openrouterKey, model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
-  const body = { model, messages, tools, parallel_tool_calls: true };
+  const caps = await getModelCapabilities(model);
+  const body = { model, messages, tools };
+  if (caps.supportsParallelToolCalls) body.parallel_tool_calls = true;
+  if (toolChoice && caps.supportsToolChoice) body.tool_choice = toolChoice;
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${openrouterKey}`, 'Content-Type': 'application/json' },
@@ -331,10 +359,13 @@ async function openrouterCall(messages, tools, signal) {
   return res.json();
 }
 
-async function openrouterStream(messages, tools, tabId, signal) {
+async function openrouterStream(messages, tools, tabId, signal, toolChoice) {
   const { openrouterKey, model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['openrouterKey', 'model']);
   if (!openrouterKey) throw new Error('OpenRouter API key not set in Settings');
-  const body = { model, messages, tools, parallel_tool_calls: true, stream: true };
+  const caps = await getModelCapabilities(model);
+  const body = { model, messages, tools, stream: true };
+  if (caps.supportsParallelToolCalls) body.parallel_tool_calls = true;
+  if (toolChoice && caps.supportsToolChoice) body.tool_choice = toolChoice;
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
@@ -425,7 +456,7 @@ async function openrouterStream(messages, tools, tabId, signal) {
 }
 
 // Ask the model to produce a concise final answer (no tool recap) using gathered info
-async function requestFinalAnswer(messages, steps, signal) {
+async function requestFinalAnswer(messages, tools, steps, signal) {
   try {
     const directive = {
       role: 'system',
@@ -435,7 +466,7 @@ async function requestFinalAnswer(messages, steps, signal) {
       role: 'user',
       content: 'Please provide the final answer now. Do not describe steps or tools.'
     };
-    const completion = await openrouterCall([...messages, directive, nudge], [], signal);
+    const completion = await openrouterCall([...messages, directive, nudge], tools, signal, 'none');
     const choice = completion.choices?.[0];
     const text = (choice?.message?.content || '').trim();
     if (text) return text;
@@ -677,18 +708,26 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
       const meta = init.result;
       const trimmed = { ...meta, html: (meta.html || '').slice(0, 20000) }; // cap html for token efficiency
 
+      const { model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['model']);
+      const caps = await getModelCapabilities(model);
       const callId = 'init_read';
-      messages.push({
-        role: 'assistant',
-        content: null,
-        tool_calls: [{ id: callId, function: { name: 'read_page', arguments: '{}' } }]
-      });
-      messages.push({
-        role: 'tool',
-        tool_call_id: callId,
-        name: 'read_page',
-        content: JSON.stringify(trimmed)
-      });
+      if (caps.supportsTools) {
+        messages.push({
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: callId, type: 'function', function: { name: 'read_page', arguments: '{}' } }]
+        });
+        messages.push({
+          role: 'tool',
+          tool_call_id: callId,
+          content: JSON.stringify(trimmed)
+        });
+      } else {
+        messages.push({
+          role: 'system',
+          content: `Initial page context (trimmed):\n${JSON.stringify(trimmed)}`
+        });
+      }
     }
   } catch {}
 
@@ -702,7 +741,10 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
     for (let i = 0; i < MAX_TURNS; i++) {
       // Try true SSE streaming first for fastest perceived latency
       try {
-        const s = await openrouterStream(messages, tools, currentTabId, signal);
+        const { model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['model']);
+        const caps = await getModelCapabilities(model);
+        const toolChoice = caps.supportsTools ? 'auto' : 'none';
+        const s = await openrouterStream(messages, tools, currentTabId, signal, toolChoice);
         if (s?.aborted) {
           // Model attempted tool calls; fall through to regular (non-streaming) call to get full tool payload
         } else if (s?.streamed) {
@@ -715,7 +757,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
             finalAnswerGenerated = true;
           } else {
             // No assistant text came through; first request a proper final answer
-            const forced = await requestFinalAnswer(messages, steps, signal);
+            const forced = await requestFinalAnswer(messages, tools, steps, signal);
             if (forced && forced.trim().length > 0) {
               chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: forced, steps, totalDuration, tabId: currentTabId });
               messages.push({ role: 'assistant', content: forced });
@@ -734,11 +776,25 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
         // Networking/SSE unsupported; proceed with non-streaming call
       }
 
-      const completion = await openrouterCall(messages, tools, signal);
+      const { model = 'openrouter/sonoma-sky-alpha' } = await chrome.storage.local.get(['model']);
+      const caps = await getModelCapabilities(model);
+      const toolChoice = caps.supportsTools ? 'auto' : 'none';
+      const completion = await openrouterCall(messages, tools, signal, toolChoice);
       const choice = completion.choices?.[0];
       if (!choice) throw new Error('No choices from OpenRouter');
 
-      const assistantMessage = choice.message;
+      const assistantMessage = choice.message || {};
+      if (Array.isArray(assistantMessage.tool_calls)) {
+        if (assistantMessage.content == null) assistantMessage.content = '';
+        assistantMessage.tool_calls = assistantMessage.tool_calls.map(tc => {
+          const next = { ...tc };
+          if (!next.type) next.type = 'function';
+          if (next.function && typeof next.function.arguments !== 'string') {
+            try { next.function.arguments = JSON.stringify(next.function.arguments ?? {}); } catch { next.function.arguments = '{}'; }
+          }
+          return next;
+        });
+      }
       messages.push(assistantMessage);
 
       if (assistantMessage.tool_calls) {
@@ -802,7 +858,6 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
           tool_outputs.push({
             tool_call_id: call.id,
             role: 'tool',
-            name: call.function.name,
             content: safeContent,
           });
         }
@@ -843,7 +898,7 @@ Your goal is to be a powerful and reliable assistant. Think through the problem,
     // If the loop finishes without a final text answer, try to force a concise final answer.
     if (!finalAnswerGenerated) {
       const totalDuration = Math.round((Date.now() - startTime) / 1000);
-      const forced = await requestFinalAnswer(messages, steps, signal);
+      const forced = await requestFinalAnswer(messages, tools, steps, signal);
       if (forced && forced.trim().length > 0) {
         chrome.runtime.sendMessage({ type: 'SIDE_FINAL_RESPONSE', finalAnswer: forced, steps, totalDuration, tabId: currentTabId });
         messages.push({ role: 'assistant', content: forced });
