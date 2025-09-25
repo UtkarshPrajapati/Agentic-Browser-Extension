@@ -179,7 +179,14 @@ function endStream(totalSeconds, steps) {
       renderThrottleTimer = null;
     }
     if (streamingState.contentEl && typeof streamingState.text === 'string') {
-      streamingState.contentEl.innerHTML = renderMarkdown(streamingState.text);
+      const stripped = stripMermaidFromText(streamingState.text);
+      streamingState.contentEl.innerHTML = renderMarkdown(stripped);
+    }
+  } catch {}
+  // After final render, attempt Mermaid detection and rendering
+  try {
+    if (streamingState && typeof streamingState.text === 'string') {
+      renderMermaidBlocksInElement(finalMsgEl, streamingState.text);
     }
   } catch {}
   const hadText = !!(streamingState.text && String(streamingState.text).trim().length);
@@ -716,7 +723,11 @@ chrome.runtime.onMessage.addListener((msg) => {
         summary.innerHTML = `Thought for ${msg.totalDuration || thinkingState.seconds} seconds`;
         // Keep open until we receive 'idle' to finalize and collapse
       }
-      const finalEl = addMessage('assistant', msg.finalAnswer);
+      // Render without mermaid source in the visible body
+      const stripped = stripMermaidFromText(String(msg.finalAnswer || ''));
+      const finalEl = addMessage('assistant', stripped);
+      // Then render diagrams separately (if any)
+      try { renderMermaidBlocksInElement(finalEl, String(msg.finalAnswer || '')); } catch {}
       try {
         const stepsArr = Array.isArray(msg.steps) ? msg.steps : [];
         const shot = stepsArr.slice().reverse().find(s => s && s.isImage && s.jsonData?.dataUrl);
@@ -1080,6 +1091,139 @@ function initModelAutocomplete() {
 
 initModelAutocomplete();
 
+
+// -------------------- Mermaid rendering (diagram blocks) --------------------
+function extractMermaidBlocks(rawText) {
+  try {
+    const text = String(rawText || '');
+    const rx = /```\s*mermaid\s*\n([\s\S]*?)```/gi;
+    const blocks = [];
+    let m;
+    while ((m = rx.exec(text)) !== null) {
+      const code = (m[1] || '').trim();
+      if (code) blocks.push({ code, start: m.index, end: rx.lastIndex });
+    }
+    return blocks;
+  } catch {
+    return [];
+  }
+}
+
+function stripMermaidFromText(rawText) {
+  try {
+    const text = String(rawText || '');
+    return text.replace(/```\s*mermaid\s*\n([\s\S]*?)```/gi, '').trim();
+  } catch {
+    return String(rawText || '');
+  }
+}
+
+async function fetchMermaidSvg(code) {
+  try {
+    const res = await fetch('https://kroki.io/mermaid/svg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: code
+    });
+    if (!res.ok) throw new Error(`Kroki error ${res.status}`);
+    const svg = await res.text();
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  } catch (e) {
+    return null;
+  }
+}
+
+function renderMermaidBlocksInElement(containerEl, rawText) {
+  try {
+    const blocks = extractMermaidBlocks(rawText);
+    if (!blocks.length || !containerEl) return;
+    // Remove existing holder if present to avoid duplicates
+    try {
+      const existing = containerEl.querySelector('.diagram-holder');
+      if (existing) existing.remove();
+    } catch {}
+    // Create a container to hold rendered diagrams (separate from sanitized HTML)
+    const holder = document.createElement('div');
+    holder.className = 'diagram-holder';
+    // Render sequentially to keep order
+    (async () => {
+      for (const b of blocks) {
+        const wrap = document.createElement('div');
+        wrap.className = 'diagram-item';
+        wrap.style.marginTop = '8px';
+        const loading = document.createElement('div');
+        loading.style.fontSize = '12px';
+        loading.style.color = 'var(--fg-muted)';
+        loading.textContent = 'Rendering diagram…';
+        wrap.appendChild(loading);
+        holder.appendChild(wrap);
+        const tryRender = async () => {
+          try {
+            const src = await fetchMermaidSvg(b.code);
+            if (src) {
+              const img = document.createElement('img');
+              img.src = src;
+              img.alt = 'Mermaid diagram';
+              img.style.maxWidth = '100%';
+              img.style.display = 'block';
+              wrap.innerHTML = '';
+              wrap.appendChild(img);
+              return true;
+            }
+          } catch {}
+          return false;
+        };
+        const ok = await tryRender();
+        if (!ok) {
+          // Build collapsed source with retry
+          wrap.innerHTML = '';
+          const details = document.createElement('details');
+          details.open = false;
+          details.className = 'diagram-fallback';
+          const summary = document.createElement('summary');
+          summary.textContent = 'Mermaid source (failed to render)';
+          // Right side retry button container
+          const toolbar = document.createElement('span');
+          toolbar.style.marginLeft = '8px';
+          const retryBtn = document.createElement('button');
+          retryBtn.className = 'confirm-btn';
+          retryBtn.textContent = 'Retry';
+          retryBtn.addEventListener('click', async (ev) => {
+            ev.preventDefault(); ev.stopPropagation();
+            retryBtn.disabled = true;
+            try {
+              const src2 = await fetchMermaidSvg(b.code);
+              if (src2) {
+                // Replace entire fallback with rendered image
+                const img = document.createElement('img');
+                img.src = src2;
+                img.alt = 'Mermaid diagram';
+                img.style.maxWidth = '100%';
+                img.style.display = 'block';
+                wrap.innerHTML = '';
+                wrap.appendChild(img);
+                persistMessagesDebounced(true);
+                return;
+              }
+            } finally {
+              retryBtn.disabled = false;
+            }
+          });
+          toolbar.appendChild(retryBtn);
+          summary.appendChild(toolbar);
+          details.appendChild(summary);
+          const pre = document.createElement('pre');
+          pre.textContent = b.code;
+          details.appendChild(pre);
+          wrap.appendChild(details);
+        }
+      }
+    })();
+    containerEl.appendChild(holder);
+    els.messages.scrollTop = els.messages.scrollHeight;
+    persistMessagesDebounced(true);
+  } catch {}
+}
 
 function initSuggestionChips() {
   if (!els.chips) return;
