@@ -740,6 +740,17 @@ Use visuals to improve clarity.
 When the user intention is ambiguous (e.g., "summarise"), ALWAYS begin by calling \`open_tab_and_read\` (preferred) or \`read_page\` to capture the current page context before asking clarifying questions. Summaries should default to the active page unless the user specifies otherwise. If you do not get the context of the question, you should use a page read tool to get the context of the question.
 
 Your goal is to be a powerful and reliable assistant. Think through the problem, form a robust plan, and execute it diligently.` });
+    // Add concise Mermaid guidance to improve diagram validity
+    messages.push({
+      role: 'system',
+      content: 'Mermaid quick rules:\n' +
+               '- Put diagram header on its own line: flowchart TD|LR or graph TD|LR.\n' +
+               '- Keep node labels single-line: A[Text]. For line breaks/formatting, prefer Markdown-string labels: A["`Line 1\\nLine 2`"].\n' +
+               '- If you must use <br/> in labels, include an init directive enabling htmlLabels and loose security: %%{init: {"securityLevel":"loose","flowchart":{"htmlLabels":true}}}%%.\n' +
+               '- Quote labels that include punctuation/emoji/slashes/parentheses. In mindmap, quote leaf/branch texts.\n' +
+               '- Put edge labels on the edge: A --|Reason|--> B (quote when punctuation-heavy).\n' +
+               '- Keep labels short; split long ideas across nodes or subgraphs. Minimal styling (e.g., style A fill:#e1f5fe) is fine.'
+    });
   }
   // Always capture initial page context before starting the loop
   try {
